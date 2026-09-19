@@ -1,18 +1,33 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const qrcode = require('qrcode-terminal');
 
 async function connectToWhatsApp() {
+    // Session දත්ත සුරැකීමට Folder එක සකසයි
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
-        logger: pino({ level: 'silent' })
+        logger: pino({ level: 'silent' }) // printQRInTerminal ඉවත් කර ඇත
     });
+
+    // Pairing Code එකක් ලබා ගැනීම (පළමු වරට ලොග් වන විට පමණක් ක්‍රියාත්මක වේ)
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = "94764802314"; // 👈 මෙතැනට ඔබගේ WhatsApp අංකය යොදන්න (Country Code එක සමග)
+        
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(phoneNumber);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log(`\n=================================\n🔑 ඔබගේ Pairing Code එක: ${code}\n=================================\n`);
+            } catch (error) {
+                console.log("Pairing code ලබා ගැනීමට නොහැකි විය: ", error);
+            }
+        }, 3000);
+    }
 
     sock.ev.on('creds.update', saveCreds);
 
+    // Connection Status පරීක්ෂා කිරීම
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
@@ -22,7 +37,7 @@ async function connectToWhatsApp() {
                 connectToWhatsApp();
             }
         } else if (connection === 'open') {
-            console.log('WhatsApp Bot සාර්ථකව සම්බන්ධ විය!');
+            console.log('✅ WhatsApp Bot සාර්ථකව සම්බන්ධ විය!');
         }
     });
 
@@ -37,7 +52,7 @@ async function connectToWhatsApp() {
         const textMessage = msg.message.conversation || 
                             msg.message.extendedTextMessage?.text || '';
 
-        // Prefix එක (. හෝ !)
+        // Command Prefix එක (. හෝ !)
         const prefix = '.';
         if (!textMessage.startsWith(prefix)) return;
 
@@ -67,12 +82,10 @@ async function connectToWhatsApp() {
             await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
         }
 
-        // 3. නව Command එකක් එකතු කිරීමට (Example)
-        /*
-        else if (command === 'menu') {
-            await sock.sendMessage(from, { text: 'ඔබගේ Menu එක මෙතැනට ඇතුළත් කරන්න' }, { quoted: msg });
+        // 3. නව Command එකක් එකතු කිරීමට (උදාහරණයක් ලෙස)
+        else if (command === 'hi' || command === 'hello') {
+            await sock.sendMessage(from, { text: 'හෙලෝ! මම WhatsApp Bot කෙනෙක්. ඔබට උදව් කරන්නේ කෙසේද?' }, { quoted: msg });
         }
-        */
 
     });
 }
