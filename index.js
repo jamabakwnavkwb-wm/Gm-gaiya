@@ -43,11 +43,13 @@ async function connectToWhatsApp() {
 
             try {
                 const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                const connectedMessage = `✅ *WhatsApp Bot Connected Successfully!*\n\n` +
+                
+                // ඉංග්‍රීසි භාෂාවෙන් සකස් කළ Connected Message එක
+                const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
                                          `• *Status:* Active 🟢\n` +
                                          `• *Prefix:* [ . ]\n` +
                                          `• *Commands:* .ping , .setting\n\n` +
-                                         `_Bot එක සාර්ථකව සම්බන්ධ විය!_`;
+                                         `_Bot is now ready to use!_`;
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
             } catch (err) {
@@ -59,18 +61,16 @@ async function connectToWhatsApp() {
     // Messages සහ Commands Handle කිරීම
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
-            // New message notify වන විට පමණක් ක්‍රියාත්මක වේ
             if (type !== 'notify') return;
 
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // 1. එකම Message එක දෙපාරක් Process වීම වැළැක්වීම
+            // Duplicate Message Check
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
 
-            // Memory එක පිරී යාම වැළැක්වීමට කාලයකට පසු ID එක ඉවත් කිරීම
             setTimeout(() => processedMessages.delete(msgId), 60000);
 
             const from = msg.key.remoteJid;
@@ -113,7 +113,7 @@ async function connectToWhatsApp() {
                                      `• *Prefix:* [ ${prefix} ]\n` +
                                      `• *Status:* Online 🟢\n` +
                                      `• *Mode:* Public / Self\n\n` +
-                                     `වෙනස්කම් කිරීමට අදාළ Settings භාවිතා කරන්න.`;
+                                     `Use settings options to configure.`;
                 
                 await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
             }
