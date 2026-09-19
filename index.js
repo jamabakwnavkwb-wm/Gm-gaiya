@@ -1,6 +1,9 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
+// Duplicate response වැළැක්වීම සඳහා Process වූ Message IDs මතකයේ තබාගැනීමට Array එකක්
+const processedMessages = new Set();
+
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
@@ -38,31 +41,37 @@ async function connectToWhatsApp() {
         } else if (connection === 'open') {
             console.log('✅ WhatsApp Bot සාර්ථකව සම්බන්ධ විය!');
 
-            // ----------------- BOT CONNECTED MESSAGE ----------------- //
             try {
-                // Bot ගේම WhatsApp ID (JID) එක ලබා ගැනීම
                 const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                
                 const connectedMessage = `✅ *WhatsApp Bot Connected Successfully!*\n\n` +
                                          `• *Status:* Active 🟢\n` +
                                          `• *Prefix:* [ . ]\n` +
                                          `• *Commands:* .ping , .setting\n\n` +
                                          `_Bot එක සාර්ථකව සම්බන්ධ විය!_`;
 
-                // තමන්ගේම Inbox එකට Message එක යැවීම
                 await sock.sendMessage(botJid, { text: connectedMessage });
             } catch (err) {
                 console.error("Connected message යැවීමට නොහැකි විය:", err);
             }
-            // --------------------------------------------------------- //
         }
     });
 
     // Messages සහ Commands Handle කිරීම
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
+            // New message notify වන විට පමණක් ක්‍රියාත්මක වේ
+            if (type !== 'notify') return;
+
             const msg = messages[0];
             if (!msg || !msg.message) return;
+
+            // 1. එකම Message එක දෙපාරක් Process වීම වැළැක්වීම
+            const msgId = msg.key.id;
+            if (processedMessages.has(msgId)) return;
+            processedMessages.add(msgId);
+
+            // Memory එක පිරී යාම වැළැක්වීමට කාලයකට පසු ID එක ඉවත් කිරීම
+            setTimeout(() => processedMessages.delete(msgId), 60000);
 
             const from = msg.key.remoteJid;
 
