@@ -1,11 +1,11 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { exec } = require('child_process');
 
 const processedMessages = new Set();
 const userState = new Map();
 
-let botPresence = 'available';  // Default Online
+let botPresence = 'available';  // Default Online ('available' / 'unavailable')
 let currentPrefix = '.';        // Default Prefix
 let workMode = 'public';        // Default Work Mode ('public', 'private', 'group', 'inbox')
 let autoReactEnabled = true;     // Default Auto React Status (ON/OFF)
@@ -45,24 +45,25 @@ async function connectToWhatsApp() {
         } else if (connection === 'open') {
             console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
 
+            // Presence (Online/Offline) Update
             await sock.sendPresenceUpdate(botPresence);
 
             try {
                 const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
                 const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
                                          `🤖 *Bot Name:* GM GAIYA - MD\n` +
-                                         `• *Status:* Active 🟢\n` +
+                                         `• *Status:* ${botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
                                          `• *Prefix:* [ ${currentPrefix} ]\n` +
                                          `• *Work Mode:* ${workMode.toUpperCase()}\n` +
                                          `• *Auto React:* ${autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${ownerReactEmoji})\n` +
                                          `• *Auto Restart:* Every 6 Hours ⏰\n` +
-                                         `• *Commands:* ${currentPrefix}menu , ${currentPrefix}ping , ${currentPrefix}setting , ${currentPrefix}update\n\n` +
+                                         `• *Commands:* ${currentPrefix}menu , ${currentPrefix}ping , ${currentPrefix}setting , ${currentPrefix}update , ${currentPrefix}vv2\n\n` +
                                          `_GM GAIYA - MD Bot is now ready to use!_`;
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
 
                 // ----------------- AUTO RESTART EVERY 6 HOURS ----------------- //
-                const SIX_HOURS = 6 * 60 * 60 * 1000; // පැය 6 ක් (Milliseconds)
+                const SIX_HOURS = 6 * 60 * 60 * 1000;
                 
                 setTimeout(async () => {
                     try {
@@ -73,10 +74,9 @@ async function connectToWhatsApp() {
                     }
                     
                     setTimeout(() => {
-                        process.exit(0); // Restarting Process
+                        process.exit(0);
                     }, 5000);
                 }, SIX_HOURS);
-                // ------------------------------------------------------------- //
 
             } catch (err) {
                 console.error("Connected message යැවීමට නොහැකි විය:", err);
@@ -102,6 +102,9 @@ async function connectToWhatsApp() {
             const senderJid = msg.key.participant || msg.key.remoteJid || '';
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === ownerNumber || msg.key.fromMe;
+
+            // Online Presence Status Maintain
+            await sock.sendPresenceUpdate(botPresence);
 
             // ----------------- OWNER AUTO REACT ----------------- //
             if (isOwner && autoReactEnabled && ownerReactEmoji) {
@@ -276,6 +279,7 @@ async function connectToWhatsApp() {
                                  `│ 🏓 *${currentPrefix}ping* - Check Bot Speed\n` +
                                  `│ ⚙️ *${currentPrefix}setting* - Bot Settings\n` +
                                  `│ 🔄 *${currentPrefix}update* - Update Bot from GitHub\n` +
+                                 `│ 👁️ *${currentPrefix}vv2* - Download View Once Media\n` +
                                  `└──────────────\n\n` +
                                  `_POWERED BY GM GAIYA - MD_`;
 
@@ -332,6 +336,51 @@ async function connectToWhatsApp() {
                         process.exit(0);
                     }, 2000);
                 });
+            }
+
+            // 5. View Once Downloader Command (.vv2)
+            else if (command === 'vv2' || command === 'vv') {
+                const quotedMsg = msg.message.extendedTextMessage?.contextInfo?.quotedMessage;
+
+                if (!quotedMsg) {
+                    return await sock.sendMessage(from, { text: `⚠️ කරුණාකර View Once (One Time) ලෙස ලැබුණු Photo එකකට හෝ Video එකකට Reply කර මේ කමාන්ඩ් එක යවන්න!` }, { quoted: msg });
+                }
+
+                // Get View Once Message Content
+                const viewOnceMsg = quotedMsg.viewOnceMessageV2?.message || quotedMsg.viewOnceMessage?.message || quotedMsg;
+                const imageMsg = viewOnceMsg.imageMessage;
+                const videoMsg = viewOnceMsg.videoMessage;
+
+                if (!imageMsg && !videoMsg) {
+                    return await sock.sendMessage(from, { text: `⚠️ ඔබ Reply කළ Message එක View Once Photo එකක් හෝ Video එකක් නොවේ!` }, { quoted: msg });
+                }
+
+                const botOwnerJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+
+                await sock.sendMessage(from, { text: `📥 *Downloading View Once Media...*` }, { quoted: msg });
+
+                if (imageMsg) {
+                    const stream = await downloadContentFromMessage(imageMsg, 'image');
+                    let buffer = Buffer.from([]);
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+
+                    const captionText = imageMsg.caption || 'Downloaded View Once Photo';
+                    await sock.sendMessage(botOwnerJid, { image: buffer, caption: `👁️ *VIEW ONCE PHOTO DOWNLOADED*\n\n📝 *Caption:* ${captionText}` });
+                    await sock.sendMessage(from, { text: `✅ View Once Photo එක Bot ගේ Inbox එකට සාර්ථකව යවන ලදී!` }, { quoted: msg });
+                } 
+                else if (videoMsg) {
+                    const stream = await downloadContentFromMessage(videoMsg, 'video');
+                    let buffer = Buffer.from([]);
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+
+                    const captionText = videoMsg.caption || 'Downloaded View Once Video';
+                    await sock.sendMessage(botOwnerJid, { video: buffer, caption: `👁️ *VIEW ONCE VIDEO DOWNLOADED*\n\n📝 *Caption:* ${captionText}` });
+                    await sock.sendMessage(from, { text: `✅ View Once Video එක Bot ගේ Inbox එකට සාර්ථකව යවන ලදී!` }, { quoted: msg });
+                }
             }
 
         } catch (error) {
