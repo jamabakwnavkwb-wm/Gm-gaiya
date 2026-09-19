@@ -9,11 +9,12 @@ const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 // Default Settings
 const defaultSettings = {
     botName: 'GM GAIYA - MD',     // Bot Name
-    botPresence: 'available',    // Online ('available' / 'unavailable')
+    botPresence: 'available',    // Online Status ('available' / 'unavailable')
     currentPrefix: '.',          // Prefix
     workMode: 'public',          // Work Mode ('public', 'private', 'group', 'inbox')
-    autoReactEnabled: true,       // Auto React (true / false)
-    ownerReactEmoji: '👑'        // Owner React Emoji
+    autoReactEnabled: true,       // Auto React
+    ownerReactEmoji: '👑',       // Owner React Emoji
+    autoViewOnce: true           // View Once On/Off Status
 };
 
 // Local JSON File එකෙන් Settings Load කිරීම
@@ -59,7 +60,6 @@ async function connectToWhatsApp() {
         generateHighQualityLinkPreview: true
     });
 
-    // Pair Code ලබා ගැනීම (පළමු වරට පමණි)
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
             try {
@@ -74,7 +74,6 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Connection Status Sync Fix
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         
@@ -103,8 +102,9 @@ async function connectToWhatsApp() {
                                          `• *Status:* ${currentSettings.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
                                          `• *Prefix:* [ ${currentSettings.currentPrefix} ]\n` +
                                          `• *Work Mode:* ${currentSettings.workMode.toUpperCase()}\n` +
+                                         `• *View Once Download:* ${currentSettings.autoViewOnce ? 'ON 🟢' : 'OFF 🔴'}\n` +
                                          `• *Auto React:* ${currentSettings.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${currentSettings.ownerReactEmoji})\n` +
-                                         `• *Commands:* ${currentSettings.currentPrefix}menu , ${currentSettings.currentPrefix}ping , ${currentSettings.currentPrefix}setting , ${currentSettings.currentPrefix}stop\n\n` +
+                                         `• *Commands:* ${currentSettings.currentPrefix}menu , ${currentSettings.currentPrefix}ping , ${currentSettings.currentPrefix}setting\n\n` +
                                          `_${currentSettings.botName} is now active and ready!_`;
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
@@ -114,7 +114,6 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Messages සහ Commands Handler
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
             if (!messages || messages.length === 0) return;
@@ -122,6 +121,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
+            // 🛑 Double Response Preventer (ඩබල් වැටෙන එක නැවැත්වීමට)
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
@@ -141,12 +141,10 @@ async function connectToWhatsApp() {
                 ''
             ).trim();
 
-            if (!textMessage) return;
-
             await sock.sendPresenceUpdate(currentSettings.botPresence);
 
             // Owner Auto React
-            if (isOwner && currentSettings.autoReactEnabled && currentSettings.ownerReactEmoji) {
+            if (isOwner && currentSettings.autoReactEnabled && currentSettings.ownerReactEmoji && textMessage) {
                 try {
                     await sock.sendMessage(from, {
                         react: {
@@ -274,7 +272,6 @@ async function connectToWhatsApp() {
                 return await sock.sendMessage(from, { text: `✅ *Auto React Emoji changed to:* ${currentSettings.ownerReactEmoji}` }, { quoted: msg });
             }
 
-            // 5. Change Bot Name State Response
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '5') {
                 userState.set(from, 'AWAITING_NAME_CHOICE');
                 return await sock.sendMessage(from, { text: `🤖 *CHANGE BOT NAME*\n\nCurrent Name: *${currentSettings.botName}*\n\n_කරුණාකර Bot ට තැබීමට අවශ්‍ය අලුත් නම ටයිප් කර යවන්න:_` }, { quoted: msg });
@@ -288,6 +285,31 @@ async function connectToWhatsApp() {
                 saveSettings(currentSettings);
                 userState.delete(from);
                 return await sock.sendMessage(from, { text: `✅ *Bot Name successfully changed to:* *${currentSettings.botName}*` }, { quoted: msg });
+            }
+
+            // 6. View Once Settings Menu Choice
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '6') {
+                userState.set(from, 'AWAITING_VO_CHOICE');
+                const voMenu = `👁️ *VIEW ONCE DOWNLOAD SETTINGS*\n\n` +
+                               `Reply with option number:\n` +
+                               `*6.1* - Turn ON View Once Command 🟢\n` +
+                               `*6.2* - Turn OFF View Once Command 🔴\n\n` +
+                               `_Current Status: ${currentSettings.autoViewOnce ? 'ON 🟢' : 'OFF 🔴'}_`;
+                return await sock.sendMessage(from, { text: voMenu }, { quoted: msg });
+            }
+
+            if (currentState === 'AWAITING_VO_CHOICE') {
+                if (textMessage === '6.1') {
+                    currentSettings.autoViewOnce = true;
+                    saveSettings(currentSettings);
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `🟢 *View Once Command Enabled!*` }, { quoted: msg });
+                } else if (textMessage === '6.2') {
+                    currentSettings.autoViewOnce = false;
+                    saveSettings(currentSettings);
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `🔴 *View Once Command Disabled!*` }, { quoted: msg });
+                }
             }
 
             // ----------------- MAIN COMMANDS ----------------- //
@@ -304,6 +326,7 @@ async function connectToWhatsApp() {
                                  `📌 *Prefix:* [ ${currentSettings.currentPrefix} ]\n` +
                                  `🟢 *Status:* ${currentSettings.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
                                  `⚙️ *Mode:* ${currentSettings.workMode.toUpperCase()}\n` +
+                                 `👁️ *View Once Feature:* ${currentSettings.autoViewOnce ? 'ON 🟢' : 'OFF 🔴'}\n` +
                                  `👑 *Auto React:* ${currentSettings.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'}\n\n` +
                                  `*AVAILABLE COMMANDS:*\n` +
                                  `┌──────────────\n` +
@@ -312,7 +335,7 @@ async function connectToWhatsApp() {
                                  `│ ⚙️ *${currentSettings.currentPrefix}setting* - Bot Settings\n` +
                                  `│ 🤖 *${currentSettings.currentPrefix}setbotname <Name>* - Direct Name Change\n` +
                                  `│ 🔄 *${currentSettings.currentPrefix}update* - Git Update\n` +
-                                 `│ 👁️ *${currentSettings.currentPrefix}vv2* - View Once Media Download\n` +
+                                 `│ 👁️ *${currentSettings.currentPrefix}vv2* - View Once Download\n` +
                                  `│ 🔄 *${currentSettings.currentPrefix}customreset* - Reset Settings\n` +
                                  `│ 🛑 *${currentSettings.currentPrefix}stop* - Stop Bot Process\n` +
                                  `└──────────────\n\n` +
@@ -341,10 +364,12 @@ async function connectToWhatsApp() {
                                      `*2* - Change Prefix\n` +
                                      `*3* - Work Mode Settings\n` +
                                      `*4* - Auto React Settings\n` +
-                                     `*5* - Change Bot Name 🤖\n\n` +
+                                     `*5* - Change Bot Name 🤖\n` +
+                                     `*6* - View Once Settings 👁️\n\n` +
                                      `_Current Bot Name: ${currentSettings.botName}_\n` +
                                      `_Current Prefix: [ ${currentSettings.currentPrefix} ]_\n` +
-                                     `_Current Mode: ${currentSettings.workMode.toUpperCase()}_`;
+                                     `_Current Mode: ${currentSettings.workMode.toUpperCase()}_\n` +
+                                     `_View Once Feature: ${currentSettings.autoViewOnce ? 'ON 🟢' : 'OFF 🔴'}_`;
                 
                 await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
             }
@@ -376,8 +401,12 @@ async function connectToWhatsApp() {
                 });
             }
 
-            // 6. View Once Download
+            // 6. View Once Download Command (`.vv2` හෝ `.vv`)
             else if (command === 'vv2' || command === 'vv') {
+                if (!currentSettings.autoViewOnce) {
+                    return await sock.sendMessage(from, { text: `⚠️ View Once feature එක මේ වන විට Settings වලින් OFF කර ඇත!` }, { quoted: msg });
+                }
+
                 const quotedMsg = msg.message.extendedTextMessage?.contextInfo?.quotedMessage;
                 if (!quotedMsg) return await sock.sendMessage(from, { text: `⚠️ View Once photo/video එකකට reply කරන්න!` }, { quoted: msg });
 
@@ -393,14 +422,18 @@ async function connectToWhatsApp() {
                     const stream = await downloadContentFromMessage(imageMsg, 'image');
                     let buffer = Buffer.from([]);
                     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-                    await sock.sendMessage(botOwnerJid, { image: buffer, caption: `👁️ *VIEW ONCE PHOTO DOWNLOADED*` });
-                    await sock.sendMessage(from, { text: `✅ View Once Photo එක Inbox එකට යවන ලදී!` }, { quoted: msg });
+                    
+                    // Owner ගේ Inbox එකට යවීම
+                    await sock.sendMessage(botOwnerJid, { image: buffer, caption: `👁️ *VIEW ONCE PHOTO DOWNLOADED*\n\n_From: ${from}_` });
+                    await sock.sendMessage(from, { text: `✅ View Once Photo එක සාර්ථකව Download කර Inbox එකට යවන ලදී!` }, { quoted: msg });
                 } else if (videoMsg) {
                     const stream = await downloadContentFromMessage(videoMsg, 'video');
                     let buffer = Buffer.from([]);
                     for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-                    await sock.sendMessage(botOwnerJid, { video: buffer, caption: `👁️ *VIEW ONCE VIDEO DOWNLOADED*` });
-                    await sock.sendMessage(from, { text: `✅ View Once Video එක Inbox එකට යවන ලදී!` }, { quoted: msg });
+
+                    // Owner ගේ Inbox එකට යවීම
+                    await sock.sendMessage(botOwnerJid, { video: buffer, caption: `👁️ *VIEW ONCE VIDEO DOWNLOADED*\n\n_From: ${from}_` });
+                    await sock.sendMessage(from, { text: `✅ View Once Video එක සාර්ථකව Download කර Inbox එකට යවන ලදී!` }, { quoted: msg });
                 }
             }
 
