@@ -174,6 +174,75 @@ async function connectToWhatsApp() {
     });
 }
 
+connectToWhatsApp();            }
+
+            // Step 3: '1.1' හෝ '1.2' ලබාදුන් පසු Online/Offline වෙනස් කිරීම
+            if (currentState === 'AWAITING_ONLINE_CHOICE') {
+                if (textMessage === '1.1') {
+                    botPresence = 'available';
+                    await sock.sendPresenceUpdate('available');
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Online Status is now ON!* 🟢` }, { quoted: msg });
+                } else if (textMessage === '1.2') {
+                    botPresence = 'unavailable';
+                    await sock.sendPresenceUpdate('unavailable');
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `🔴 *Online Status is now OFF (Offline)!*` }, { quoted: msg });
+                }
+            }
+
+            // ----------------- MAIN COMMANDS ----------------- //
+
+            if (!textMessage.startsWith(prefix)) return;
+
+            const args = textMessage.slice(prefix.length).trim().split(/ +/);
+            const command = args.shift().toLowerCase();
+
+            // 1. Menu Command
+            if (command === 'menu' || command === 'help') {
+                const menuText = `✨ *GM GAIYA - MD MAIN MENU* ✨\n\n` +
+                                 `🤖 *Bot Name:* GM GAIYA - MD\n` +
+                                 `📌 *Prefix:* [ ${prefix} ]\n` +
+                                 `🟢 *Status:* ${botPresence === 'available' ? 'Online' : 'Offline'}\n\n` +
+                                 `*AVAILABLE COMMANDS:*\n` +
+                                 `┌──────────────\n` +
+                                 `│ 📜 *${prefix}menu* - Display Menu\n` +
+                                 `│ 🏓 *${prefix}ping* - Check Bot Speed\n` +
+                                 `│ ⚙️ *${prefix}setting* - Bot Settings\n` +
+                                 `└──────────────\n\n` +
+                                 `_POWERED BY GM GAIYA - MD_`;
+
+                await sock.sendMessage(from, { text: menuText }, { quoted: msg });
+            }
+
+            // 2. Ping Command
+            else if (command === 'ping') {
+                const start = Date.now();
+                await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
+                const end = Date.now();
+                const latency = end - start;
+                
+                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${latency}ms*\n\n_GM GAIYA - MD_` }, { quoted: msg });
+            }
+
+            // 3. Setting Command (Main)
+            else if (command === 'setting' || command === 'settings') {
+                userState.set(from, 'AWAITING_SETTING_CHOICE');
+                
+                const settingsText = `⚙️ *GM GAIYA - MD SETTINGS*\n\n` +
+                                     `Reply with the option number:\n\n` +
+                                     `*1* - Online Status Settings\n\n` +
+                                     `_Current Status: ${botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}_`;
+                
+                await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
+            }
+
+        } catch (error) {
+            console.error("Message Processing Error:", error);
+        }
+    });
+}
+
 connectToWhatsApp();
             // 2. Setting Command
             else if (command === 'setting' || command === 'settings') {
