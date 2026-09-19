@@ -3,7 +3,9 @@ const pino = require('pino');
 
 const processedMessages = new Set();
 const userState = new Map();
-let botPresence = 'available';
+
+let botPresence = 'available'; // Online Status
+let currentPrefix = '.';       // Default Prefix එක
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -14,7 +16,7 @@ async function connectToWhatsApp() {
     });
 
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "94764802314";
+        const phoneNumber = "94764802314"; // ඔබගේ WhatsApp අංකය
         
         setTimeout(async () => {
             try {
@@ -47,8 +49,8 @@ async function connectToWhatsApp() {
                 const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
                                          `🤖 *Bot Name:* GM GAIYA - MD\n` +
                                          `• *Status:* Active 🟢\n` +
-                                         `• *Prefix:* [ . ]\n` +
-                                         `• *Commands:* .menu , .ping , .setting\n\n` +
+                                         `• *Prefix:* [ ${currentPrefix} ]\n` +
+                                         `• *Commands:* ${currentPrefix}menu , ${currentPrefix}ping , ${currentPrefix}setting\n\n` +
                                          `_GM GAIYA - MD Bot is now ready to use!_`;
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
@@ -83,10 +85,11 @@ async function connectToWhatsApp() {
 
             if (!textMessage) return;
 
-            const prefix = '.';
             const currentState = userState.get(from);
 
-            // Step 2 & 3: Interactive Settings Responses
+            // ----------------- INTERACTIVE SETTINGS RESPONSES ----------------- //
+
+            // Option 1: Online Status Menu
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '1') {
                 userState.set(from, 'AWAITING_ONLINE_CHOICE');
                 const onlineMenu = `⚙️ *ONLINE STATUS SETTINGS*\n\n` +
@@ -97,6 +100,7 @@ async function connectToWhatsApp() {
                 return await sock.sendMessage(from, { text: onlineMenu }, { quoted: msg });
             }
 
+            // Option 1 Sub-menu Execution
             if (currentState === 'AWAITING_ONLINE_CHOICE') {
                 if (textMessage === '1.1') {
                     botPresence = 'available';
@@ -111,26 +115,55 @@ async function connectToWhatsApp() {
                 }
             }
 
-            if (!textMessage.startsWith(prefix)) return;
+            // Option 2: Prefix Settings Menu
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '2') {
+                userState.set(from, 'AWAITING_PREFIX_CHOICE');
+                const prefixMenu = `⚙️ *CHANGE BOT PREFIX*\n\n` +
+                                   `Current Prefix: [ *${currentPrefix}* ]\n\n` +
+                                   `Reply with any symbol you want to set as new prefix:\n` +
+                                   `Allowed symbols: *.*  *,*  ***  *&*  *#*  *@*  */*  *?*  *'*  *;*\n\n` +
+                                   `_Type the symbol directly (e.g. # or ! or #)_`;
+                return await sock.sendMessage(from, { text: prefixMenu }, { quoted: msg });
+            }
 
-            const args = textMessage.slice(prefix.length).trim().split(/ +/);
+            // Option 2 Sub-menu Execution (Prefix Change)
+            if (currentState === 'AWAITING_PREFIX_CHOICE') {
+                const allowedPrefixes = ['.', ',', '*', '&', '#', '@', '/', '?', "'", ';', '!'];
+                if (allowedPrefixes.includes(textMessage)) {
+                    currentPrefix = textMessage;
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Prefix changed successfully to:* [ *${currentPrefix}* ]` }, { quoted: msg });
+                } else {
+                    return await sock.sendMessage(from, { text: `⚠️ Invalid prefix! Please select one from: . , * & # @ / ? ' ; !` }, { quoted: msg });
+                }
+            }
+
+            // ----------------- MAIN COMMANDS ----------------- //
+
+            // Dynamically set Prefix Check
+            if (!textMessage.startsWith(currentPrefix)) return;
+
+            const args = textMessage.slice(currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
+            // 1. Menu Command
             if (command === 'menu' || command === 'help') {
                 const menuText = `✨ *GM GAIYA - MD MAIN MENU* ✨\n\n` +
                                  `🤖 *Bot Name:* GM GAIYA - MD\n` +
-                                 `📌 *Prefix:* [ ${prefix} ]\n` +
+                                 `📌 *Current Prefix:* [ ${currentPrefix} ]\n` +
                                  `🟢 *Status:* ${botPresence === 'available' ? 'Online' : 'Offline'}\n\n` +
                                  `*AVAILABLE COMMANDS:*\n` +
                                  `┌──────────────\n` +
-                                 `│ 📜 *${prefix}menu* - Display Menu\n` +
-                                 `│ 🏓 *${prefix}ping* - Check Bot Speed\n` +
-                                 `│ ⚙️ *${prefix}setting* - Bot Settings\n` +
+                                 `│ 📜 *${currentPrefix}menu* - Display Menu\n` +
+                                 `│ 🏓 *${currentPrefix}ping* - Check Bot Speed\n` +
+                                 `│ ⚙️ *${currentPrefix}setting* - Bot Settings\n` +
                                  `└──────────────\n\n` +
                                  `_POWERED BY GM GAIYA - MD_`;
 
                 await sock.sendMessage(from, { text: menuText }, { quoted: msg });
             }
+
+            // 2. Ping Command
             else if (command === 'ping') {
                 const start = Date.now();
                 await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
@@ -139,12 +172,15 @@ async function connectToWhatsApp() {
                 
                 await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${latency}ms*\n\n_GM GAIYA - MD_` }, { quoted: msg });
             }
+
+            // 3. Setting Command (Main)
             else if (command === 'setting' || command === 'settings') {
                 userState.set(from, 'AWAITING_SETTING_CHOICE');
                 
                 const settingsText = `⚙️ *GM GAIYA - MD SETTINGS*\n\n` +
                                      `Reply with the option number:\n\n` +
-                                     `*1* - Online Status Settings\n\n` +
+                                     `*1* - Online Status Settings\n` +
+                                     `*2* - Change Prefix (Current: [ ${currentPrefix} ])\n\n` +
                                      `_Current Status: ${botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}_`;
                 
                 await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
