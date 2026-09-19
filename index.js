@@ -16,7 +16,7 @@ const defaultSettings = {
     ownerReactEmoji: '👑',
     autoViewOnce: true,
     githubToken: '',
-    githubRepo: '' // GitHub Repository Name (e.g., username/repo-name)
+    githubRepo: ''
 };
 
 function loadSettings() {
@@ -95,7 +95,7 @@ async function connectToWhatsApp() {
                                          `🤖 *Bot Name:* ${currentSettings.botName}\n` +
                                          `📌 *Prefix:* [ ${currentSettings.currentPrefix} ]\n` +
                                          `🔑 *GitHub Token:* ${currentSettings.githubToken ? 'SET 🟢' : 'NOT SET 🔴'}\n` +
-                                         `📁 *GitHub Repo:* ${currentSettings.githubRepo || 'NOT SET 🔴'}\n` +
+                                         `📁 *GitHub Repo:* ${currentSettings.githubRepo || 'NOT SET 🔴'}\n\n` +
                                          `• *Commands:* ${currentSettings.currentPrefix}menu , ${currentSettings.currentPrefix}apply , ${currentSettings.currentPrefix}setting`;
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
@@ -105,13 +105,14 @@ async function connectToWhatsApp() {
         }
     });
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
-            if (!messages || messages.length === 0) return;
+            if (type !== 'notify' || !messages || messages.length === 0) return;
 
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
+            // 🛑 Double Response Preventer (ඩබල් වැටෙන එක නැවැත්වීමට)
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
@@ -131,14 +132,18 @@ async function connectToWhatsApp() {
                 ''
             ).trim();
 
+            if (!textMessage) return;
+
             await sock.sendPresenceUpdate(currentSettings.botPresence);
 
-            if (isOwner && currentSettings.autoReactEnabled && currentSettings.ownerReactEmoji && textMessage) {
+            // Owner Auto React
+            if (isOwner && currentSettings.autoReactEnabled && currentSettings.ownerReactEmoji) {
                 try {
                     await sock.sendMessage(from, { react: { text: currentSettings.ownerReactEmoji, key: msg.key } });
                 } catch (e) {}
             }
 
+            // Work Mode Controls
             if (!isOwner) {
                 if (currentSettings.workMode === 'private') return;
                 if (currentSettings.workMode === 'group' && !isGroup) return;
@@ -149,39 +154,50 @@ async function connectToWhatsApp() {
 
             // ----------------- INTERACTIVE APPLY / SETTINGS HANDLERS ----------------- //
 
-            // 1. `.apply` Menu Options Handler
             if (currentState === 'AWAITING_APPLY_CHOICE') {
                 if (textMessage === '1') {
                     userState.set(from, 'AWAITING_TOKEN_INPUT');
-                    return await sock.sendMessage(from, { text: `🔑 *SET GITHUB TOKEN*\n\n_කරුණාකර ඔබගේ GitHub Personal Access Token එක (ghp_...) මෙතැන යවන්න:_` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `🔑 *SET GITHUB TOKEN*\n\nකරුණාකර ඔබගේ GitHub Personal Access Token එක (ghp_...) මෙතැන යවන්න:` }, { quoted: msg });
                 } else if (textMessage === '2') {
                     userState.set(from, 'AWAITING_REPO_INPUT');
-                    return await sock.sendMessage(from, { text: `📁 *SET GITHUB REPO NAME*\n\n_කරුණාකර Repo Name එක යවන්න (e.g., username/repository-name):_` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `📁 *SET GITHUB REPO NAME*\n\nකරුණාකර Repo Name එක යවන්න (e.g., username/repository-name):` }, { quoted: msg });
                 } else if (textMessage === '3') {
                     if (!currentSettings.githubToken || !currentSettings.githubRepo) {
                         userState.delete(from);
-                        return await sock.sendMessage(from, { text: `⚠️ *Token එක සහ Repo Name එක දෙකම ඇතුළත් කර තිබිය යුතුය!*` }, { quoted: msg });
+                        return await sock.sendMessage(from, { text: `⚠️ Token එක සහ Repo Name එක දෙකම ඇතුළත් කර තිබිය යුතුය!` }, { quoted: msg });
                     }
                     userState.delete(from);
-                    return await sock.sendMessage(from, { text: `🔄 *Connecting to GitHub 24/7 Host...*\n\n✅ *Token:* Set\n✅ *Repo:* ${currentSettings.githubRepo}\n\n_GitHub Workflow 24/7 active කිරීම සාර්ථකයි!_` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `🔄 *Connecting to GitHub 24/7 Host...*\n\n✅ *Token:* Set\n✅ *Repo:* ${currentSettings.githubRepo}\n\nGitHub Workflow 24/7 active කිරීම සාර්ථකයි!` }, { quoted: msg });
                 }
             }
 
-            // Input Handlers
             if (currentState === 'AWAITING_TOKEN_INPUT') {
                 if (!isOwner) return;
-                currentSettings.githubToken = textMessage.trim();
+                currentSettings.githubToken = textMessage;
                 saveSettings(currentSettings);
                 userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *GitHub Token එක සාර්ථකව Save විය!*\n\nතවත් වෙනස්කම් සඳහා *${currentSettings.currentPrefix}apply* යවන්න.` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `✅ GitHub Token එක සාර්ථකව Save විය!\n\nතවත් වෙනස්කම් සඳහා *${currentSettings.currentPrefix}apply* යවන්න.` }, { quoted: msg });
             }
 
             if (currentState === 'AWAITING_REPO_INPUT') {
                 if (!isOwner) return;
-                currentSettings.githubRepo = textMessage.trim();
+                currentSettings.githubRepo = textMessage;
                 saveSettings(currentSettings);
                 userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *GitHub Repo Name එක සාර්ථකව Save විය:* ${currentSettings.githubRepo}\n\nතවත් වෙනස්කම් සඳහා *${currentSettings.currentPrefix}apply* යවන්න.` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `✅ GitHub Repo Name එක සාර්ථකව Save විය: *${currentSettings.githubRepo}*\n\nතවත් වෙනස්කම් සඳහා *${currentSettings.currentPrefix}apply* යවන්න.` }, { quoted: msg });
+            }
+
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '5') {
+                userState.set(from, 'AWAITING_NAME_CHOICE');
+                return await sock.sendMessage(from, { text: `🤖 *CHANGE BOT NAME*\n\nකරුණාකර අලුත් නම යවන්න:` }, { quoted: msg });
+            }
+
+            if (currentState === 'AWAITING_NAME_CHOICE') {
+                if (!isOwner) return;
+                currentSettings.botName = textMessage;
+                saveSettings(currentSettings);
+                userState.delete(from);
+                return await sock.sendMessage(from, { text: `✅ Bot Name වෙනස් විය: *${currentSettings.botName}*` }, { quoted: msg });
             }
 
             // ----------------- MAIN COMMANDS ----------------- //
@@ -201,7 +217,7 @@ async function connectToWhatsApp() {
                                   `*1* - Set GitHub Token\n` +
                                   `*2* - Set GitHub Repository Name\n` +
                                   `*3* - Connect & Test 24/7 Host Status 🚀\n\n` +
-                                  `_Current Status:_\n` +
+                                  `*Current Status:*\n` +
                                   `• *Token:* ${currentSettings.githubToken ? 'Saved 🟢' : 'Not Saved 🔴'}\n` +
                                   `• *Repo:* ${currentSettings.githubRepo || 'Not Saved 🔴'}`;
 
@@ -218,16 +234,15 @@ async function connectToWhatsApp() {
                                      `*2* - Change Prefix\n` +
                                      `*3* - Work Mode\n` +
                                      `*4* - Auto React\n` +
-                                     `*5* - Change Bot Name\n` +
-                                     `*6* - View Once Settings\n` +
-                                     `*7* - GitHub 24/7 Apply Menu 🔑\n\n` +
+                                     `*5* - Change Bot Name 🤖\n` +
+                                     `*6* - View Once Settings\n\n` +
                                      `_Bot Name: ${currentSettings.botName}_\n` +
-                                     `_Prefix: [ ${currentSettings.currentPrefix} ]_\n` +
-                                     `_GitHub Connect: ${currentSettings.githubToken && currentSettings.githubRepo ? 'Ready 🟢' : 'Incomplete 🔴'}_`;
+                                     `_Prefix: [ ${currentSettings.currentPrefix} ]_`;
                 
                 await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
             }
 
+            // .menu Command
             else if (command === 'menu' || command === 'help') {
                 const menuText = `✨ *${currentSettings.botName} MAIN MENU* ✨\n\n` +
                                  `🤖 *Bot Name:* ${currentSettings.botName}\n` +
@@ -235,16 +250,24 @@ async function connectToWhatsApp() {
                                  `🟢 *Status:* ${currentSettings.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
                                  `⚙️ *Mode:* ${currentSettings.workMode.toUpperCase()}\n\n` +
                                  `*AVAILABLE COMMANDS:*\n` +
-                                 `┌──────────────\n` +
-                                 `│ 📜 *${currentSettings.currentPrefix}menu* - Display Menu\n` +
-                                 `│ 🏓 *${currentSettings.currentPrefix}ping* - Check Speed\n` +
-                                 `│ 🔑 *${currentSettings.currentPrefix}apply* - Connect GitHub 24/7\n` +
-                                 `│ ⚙️ *${currentSettings.currentPrefix}setting* - Bot Settings\n` +
-                                 `│ 🛑 *${currentSettings.currentPrefix}stop* - Stop Bot\n` +
-                                 `└──────────────\n\n` +
+                                 `• *${currentSettings.currentPrefix}menu* - Display Menu\n` +
+                                 `• *${currentSettings.currentPrefix}ping* - Check Speed\n` +
+                                 `• *${currentSettings.currentPrefix}apply* - Connect GitHub 24/7\n` +
+                                 `• *${currentSettings.currentPrefix}setting* - Bot Settings\n` +
+                                 `• *${currentSettings.currentPrefix}stop* - Stop Bot\n\n` +
                                  `_POWERED BY ${currentSettings.botName}_`;
 
                 await sock.sendMessage(from, { text: menuText }, { quoted: msg });
+            }
+
+            // .ping Command
+            else if (command === 'ping') {
+                const start = Date.now();
+                await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
+                const end = Date.now();
+                const latency = end - start;
+                
+                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${latency}ms*` }, { quoted: msg });
             }
 
         } catch (error) {
