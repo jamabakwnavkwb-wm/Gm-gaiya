@@ -2,17 +2,16 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const pino = require('pino');
 
 async function connectToWhatsApp() {
-    // Session දත්ත සුරැකීමට Folder එක සකසයි
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'silent' }) // printQRInTerminal ඉවත් කර ඇත
+        logger: pino({ level: 'silent' })
     });
 
-    // Pairing Code එකක් ලබා ගැනීම (පළමු වරට ලොග් වන විට පමණක් ක්‍රියාත්මක වේ)
+    // Pairing Code ලබා ගැනීම (පළමු වරට පමණි)
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "94764802314"; // 👈 මෙතැනට ඔබගේ WhatsApp අංකය යොදන්න (Country Code එක සමග)
+        const phoneNumber = "94764802314"; // ඔබගේ WhatsApp අංකය
         
         setTimeout(async () => {
             try {
@@ -27,8 +26,8 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Connection Status පරීක්ෂා කිරීම
-    sock.ev.on('connection.update', (update) => {
+    // Connection Status
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut);
@@ -38,55 +37,81 @@ async function connectToWhatsApp() {
             }
         } else if (connection === 'open') {
             console.log('✅ WhatsApp Bot සාර්ථකව සම්බන්ධ විය!');
+
+            // ----------------- BOT CONNECTED MESSAGE ----------------- //
+            try {
+                // Bot ගේම WhatsApp ID (JID) එක ලබා ගැනීම
+                const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                
+                const connectedMessage = `✅ *WhatsApp Bot Connected Successfully!*\n\n` +
+                                         `• *Status:* Active 🟢\n` +
+                                         `• *Prefix:* [ . ]\n` +
+                                         `• *Commands:* .ping , .setting\n\n` +
+                                         `_Bot එක සාර්ථකව සම්බන්ධ විය!_`;
+
+                // තමන්ගේම Inbox එකට Message එක යැවීම
+                await sock.sendMessage(botJid, { text: connectedMessage });
+            } catch (err) {
+                console.error("Connected message යැවීමට නොහැකි විය:", err);
+            }
+            // --------------------------------------------------------- //
         }
     });
 
-    // Messages Handle කිරීම
+    // Messages සහ Commands Handle කිරීම
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
+        try {
+            const msg = messages[0];
+            if (!msg || !msg.message) return;
 
-        const msg = messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+            const from = msg.key.remoteJid;
 
-        const from = msg.key.remoteJid;
-        const textMessage = msg.message.conversation || 
-                            msg.message.extendedTextMessage?.text || '';
+            // Text Message එක ලබාගැනීම
+            const textMessage = (
+                msg.message.conversation ||
+                msg.message.extendedTextMessage?.text ||
+                msg.message.imageMessage?.caption ||
+                msg.message.videoMessage?.caption ||
+                ''
+            ).trim();
 
-        // Command Prefix එක (. හෝ !)
-        const prefix = '.';
-        if (!textMessage.startsWith(prefix)) return;
+            if (!textMessage) return;
 
-        const args = textMessage.slice(prefix.length).trim().split(/ +/);
-        const command = args.shift().toLowerCase();
+            // Prefix එක (. හෝ !)
+            const prefix = '.';
+            if (!textMessage.startsWith(prefix)) return;
 
-        // ----------------- COMMANDS ----------------- //
+            // Command එක වෙන් කරගැනීම
+            const args = textMessage.slice(prefix.length).trim().split(/ +/);
+            const command = args.shift().toLowerCase();
 
-        // 1. Ping Command
-        if (command === 'ping') {
-            const start = Date.now();
-            await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
-            const end = Date.now();
-            const latency = end - start;
-            
-            await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${latency}ms*` }, { quoted: msg });
+            // ----------------- COMMANDS ----------------- //
+
+            // 1. Ping Command
+            if (command === 'ping') {
+                const start = Date.now();
+                await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
+                const end = Date.now();
+                const latency = end - start;
+                
+                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${latency}ms*` }, { quoted: msg });
+            }
+
+            // 2. Setting Command
+            else if (command === 'setting' || command === 'settings') {
+                const settingsText = `⚙️ *BOT SETTINGS MENU*\n\n` +
+                                     `• *Bot Name:* WhatsApp Bot\n` +
+                                     `• *Prefix:* [ ${prefix} ]\n` +
+                                     `• *Status:* Online 🟢\n` +
+                                     `• *Mode:* Public / Self\n\n` +
+                                     `වෙනස්කම් කිරීමට අදාළ Settings භාවිතා කරන්න.`;
+                
+                await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
+            }
+
+        } catch (error) {
+            console.error("Message Processing Error:", error);
         }
-
-        // 2. Setting Command
-        else if (command === 'setting') {
-            const settingsText = `⚙️ *Bot Settings Menu*\n\n` +
-                                 `• *Prefix:* [ ${prefix} ]\n` +
-                                 `• *Status:* Active\n` +
-                                 `• *Mode:* Public\n\n` +
-                                 `වෙනස්කම් කිරීමට පහත විධානයන් භාවිතා කරන්න.`;
-            
-            await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
-        }
-
-        // 3. නව Command එකක් එකතු කිරීමට (උදාහරණයක් ලෙස)
-        else if (command === 'hi' || command === 'hello') {
-            await sock.sendMessage(from, { text: 'හෙලෝ! මම WhatsApp Bot කෙනෙක්. ඔබට උදව් කරන්නේ කෙසේද?' }, { quoted: msg });
-        }
-
     });
 }
 
