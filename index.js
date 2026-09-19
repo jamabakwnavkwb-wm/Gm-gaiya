@@ -1,8 +1,11 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
-// Duplicate response වැළැක්වීම සඳහා Process වූ Message IDs මතකයේ තබාගැනීමට Array එකක්
+// Message IDs සහ User States මතකයේ තබා ගැනීමට
 const processedMessages = new Set();
+const userState = new Map(); // Setting Menu එකේ අදියර මතක තබා ගැනීමට
+
+let botPresence = 'available'; // Default ලෙස Online ('available' හෝ 'unavailable')
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -39,17 +42,19 @@ async function connectToWhatsApp() {
                 connectToWhatsApp();
             }
         } else if (connection === 'open') {
-            console.log('✅ WhatsApp Bot සාර්ථකව සම්බන්ධ විය!');
+            console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
+
+            // Bot Presence (Online/Offline) සකස් කිරීම
+            await sock.sendPresenceUpdate(botPresence);
 
             try {
                 const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                
-                // ඉංග්‍රීසි භාෂාවෙන් සකස් කළ Connected Message එක
                 const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
+                                         `🤖 *Bot Name:* GM GAIYA - MD\n` +
                                          `• *Status:* Active 🟢\n` +
                                          `• *Prefix:* [ . ]\n` +
-                                         `• *Commands:* .ping , .setting\n\n` +
-                                         `_Bot is now ready to use!_`;
+                                         `• *Commands:* .menu , .ping , .setting\n\n` +
+                                         `_GM GAIYA - MD Bot is now ready to use!_`;
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
             } catch (err) {
@@ -86,26 +91,90 @@ async function connectToWhatsApp() {
 
             if (!textMessage) return;
 
-            // Prefix එක (. හෝ !)
             const prefix = '.';
+            const currentState = userState.get(from);
+
+            // ----------------- SETTINGS STEP BY STEP RESPONSE ----------------- //
+
+            // Step 2: User විසින් '1' ලබාදුන් පසු sub-menu එක ලබාදීම
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '1') {
+                userState.set(from, 'AWAITING_ONLINE_CHOICE');
+                const onlineMenu = `⚙️ *ONLINE STATUS SETTINGS*\n\n` +
+                                   `Reply with the number:\n` +
+                                   `*1.1* - Turn ON Online Status 🟢\n` +
+                                   `*1.2* - Turn OFF Online Status (Offline) 🔴\n\n` +
+                                   `_GM GAIYA - MD_`;
+                return await sock.sendMessage(from, { text: onlineMenu }, { quoted: msg });
+            }
+
+            // Step 3: '1.1' හෝ '1.2' ලබාදුන් පසු Online/Offline වෙනස් කිරීම
+            if (currentState === 'AWAITING_ONLINE_CHOICE') {
+                if (textMessage === '1.1') {
+                    botPresence = 'available';
+                    await sock.sendPresenceUpdate('available');
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Online Status is now ON!* 🟢` }, { quoted: msg });
+                } else if (textMessage === '1.2') {
+                    botPresence = 'unavailable';
+                    await sock.sendPresenceUpdate('unavailable');
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `🔴 *Online Status is now OFF (Offline)!*` }, { quoted: msg });
+                }
+            }
+
+            // ----------------- MAIN COMMANDS ----------------- //
+
             if (!textMessage.startsWith(prefix)) return;
 
-            // Command එක වෙන් කරගැනීම
             const args = textMessage.slice(prefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // ----------------- COMMANDS ----------------- //
+            // 1. Menu Command
+            if (command === 'menu' || command === 'help') {
+                const menuText = `✨ *GM GAIYA - MD MAIN MENU* ✨\n\n` +
+                                 `🤖 *Bot Name:* GM GAIYA - MD\n` +
+                                 `📌 *Prefix:* [ ${prefix} ]\n` +
+                                 `🟢 *Status:* ${botPresence === 'available' ? 'Online' : 'Offline'}\n\n` +
+                                 `*AVAILABLE COMMANDS:*\n` +
+                                 `┌──────────────\n` +
+                                 `│ 📜 *${prefix}menu* - Display Menu\n` +
+                                 `│ 🏓 *${prefix}ping* - Check Bot Speed\n` +
+                                 `│ ⚙️ *${prefix}setting* - Bot Settings\n` +
+                                 `└──────────────\n\n` +
+                                 `_POWERED BY GM GAIYA - MD_`;
 
-            // 1. Ping Command
-            if (command === 'ping') {
+                await sock.sendMessage(from, { text: menuText }, { quoted: msg });
+            }
+
+            // 2. Ping Command
+            else if (command === 'ping') {
                 const start = Date.now();
                 await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
                 const end = Date.now();
                 const latency = end - start;
                 
-                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${latency}ms*` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${latency}ms*\n\n_GM GAIYA - MD_` }, { quoted: msg });
             }
 
+            // 3. Setting Command (Main)
+            else if (command === 'setting' || command === 'settings') {
+                userState.set(from, 'AWAITING_SETTING_CHOICE');
+                
+                const settingsText = `⚙️ *GM GAIYA - MD SETTINGS*\n\n` +
+                                     `Reply with the option number:\n\n` +
+                                     `*1* - Online Status Settings\n\n` +
+                                     `_Current Status: ${botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}_`;
+                
+                await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
+            }
+
+        } catch (error) {
+            console.error("Message Processing Error:", error);
+        }
+    });
+}
+
+connectToWhatsApp();
             // 2. Setting Command
             else if (command === 'setting' || command === 'settings') {
                 const settingsText = `⚙️ *BOT SETTINGS MENU*\n\n` +
