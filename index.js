@@ -13,7 +13,7 @@ let currentPrefix = '.';
 let autoReactEnabled = true;       // Owner Auto React Status
 let ownerReactEmoji = '👑';        // Auto React Emoji
 let autoViewOnce = true;           // View Once Status
-let pairingRequested = false;      // Pairing Code එක එක වරක් පමණක් Request කිරීමට
+let pairingRequested = false;      // Pairing Code එක එක පාරක් පමණක් Request කිරීමට
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -23,7 +23,7 @@ async function connectToWhatsApp() {
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ['Ubuntu', 'Chrome', '20.0.04'], // Connection drop වීම වැළැක්වීමට Browser config වෙනස් කරන ලදී
+        browser: ['Ubuntu', 'Chrome', '20.0.04'],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000,
@@ -36,9 +36,9 @@ async function connectToWhatsApp() {
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect } = update;
 
-        // Pairing Code එක එක පාරක් පමණක් සාර්ථකව ලබාදීමට
+        // Pairing Code එක හරියටම එක පාරක් පමණක් ලබාදීමට
         if (!sock.authState.creds.registered && !pairingRequested) {
             pairingRequested = true;
             setTimeout(async () => {
@@ -47,33 +47,28 @@ async function connectToWhatsApp() {
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
                     console.log(`\n=================================\n🔑 PAIRING CODE: ${code}\n=================================\n`);
                 } catch (error) {
-                    console.log("Pairing code ලබා ගැනීමේ දෝෂයක්:", error?.message || error);
+                    console.log("Pairing code error:", error?.message || error);
                     pairingRequested = false;
                 }
-            }, 6000); // Stable Connection එකක් ලැබෙන තෙක් තත්පර 6ක් Delay කර ඇත
+            }, 6000);
         }
 
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             console.log(`සම්බන්ධතාවය බිඳ වැටුණි (Reason: ${statusCode})`);
 
-            // Logged out හෝ Unauthorized වී ඇත්නම් පමණක් Session Delete කරයි
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                console.log("🔴 Session එක Expire වී ඇත. නැවත සකසමින්...");
+                console.log("🔴 Session Expired වී ඇත. auth_info_baileys Delete කර නැවත ආරම්භ වේ.");
                 pairingRequested = false;
                 if (fs.existsSync('auth_info_baileys')) {
                     fs.rmSync('auth_info_baileys', { recursive: true, force: true });
                 }
                 setTimeout(() => connectToWhatsApp(), 3000);
-            } else if (statusCode !== DisconnectReason.timedOut && statusCode !== 408) {
-                // Temporary drop එකකදී Reconnect වේ
-                setTimeout(() => connectToWhatsApp(), 3000);
             } else {
-                console.log("නැවත සම්බන්ධ වීමට උත්සාහ කරයි...");
                 setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
-            console.log('✅ GM GAIYA - MD සාර්ථකව WhatsApp සමඟ සම්බන්ධ විය!');
+            console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
             pairingRequested = false;
 
             await sock.sendPresenceUpdate(botPresence);
@@ -104,7 +99,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // Message ID duplication preventer
+            // Message Duplication Prevention
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
@@ -115,7 +110,7 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            // 👑 Owner Auto React
+            // 👑 Owner Auto React Feature
             if (isOwner && autoReactEnabled && ownerReactEmoji) {
                 try {
                     await sock.sendMessage(from, {
