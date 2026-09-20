@@ -1,4 +1,11 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { 
+    default: makeWASocket, 
+    useMultiFileAuthState, 
+    DisconnectReason, 
+    fetchLatestBaileysVersion, 
+    downloadContentFromMessage,
+    makeInMemoryStore
+} = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
@@ -6,6 +13,13 @@ const { exec } = require('child_process');
 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
+
+// Memory Store for Decryption Fix
+const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
+store.readFromFile('./baileys_store_multi.json');
+setInterval(() => {
+    store.writeToFile('./baileys_store_multi.json');
+}, 10000);
 
 // Default Settings Structure
 const defaultSettings = {
@@ -15,11 +29,11 @@ const defaultSettings = {
     autoReactEnabled: true,
     ownerReactEmoji: '👑',
     autoViewOnce: true,
+    workMode: 'public', // Modes: 'public', 'private', 'group'
     githubToken: '',
     githubRepo: ''
 };
 
-// Settings Load & Save Functions (Permanently saves data)
 function loadSettings() {
     try {
         if (fs.existsSync(SETTINGS_FILE)) {
@@ -61,9 +75,17 @@ async function connectToWhatsApp() {
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000,
         syncFullHistory: false,
-        emitOwnEvents: true
+        emitOwnEvents: true,
+        getMessage: async (key) => {
+            if (store) {
+                const msg = await store.loadMessage(key.remoteJid, key.id);
+                return msg?.message || undefined;
+            }
+            return { conversation: 'Hello' };
+        }
     });
 
+    store.bind(sock.ev);
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
@@ -108,6 +130,7 @@ async function connectToWhatsApp() {
                     const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
                     const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
                                              `🤖 *Bot Name:* ${currentSettings.botName}\n` +
+                                             `🌐 *Work Mode:* ${currentSettings.workMode.toUpperCase()}\n` +
                                              `• *Status:* Active 🟢\n` +
                                              `• *Prefix:* [ ${currentSettings.currentPrefix} ]\n` +
                                              `• *Auto React:* ${currentSettings.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${currentSettings.ownerReactEmoji})\n` +
@@ -131,19 +154,24 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
+            // 1. Bot ඔන් වීමට පෙර ආ පැරණි කමාන්ඩ් ක්‍රියාත්මක වීම වැළැක්වීම
             const msgTimestamp = msg.messageTimestamp;
             if (msgTimestamp && msgTimestamp < botStartTime) return;
 
+            // 2. ඩබල් මැසේජ් එන එක වැළැක්වීම (Double Message Filter)
             const msgId = msg.key.id;
-            if (processedMessages.has(msgId)) return;
-            processedMessages.add(msgId);
-            setTimeout(() => processedMessages.delete(msgId), 60000);
+            const msgKey = `${msg.key.remoteJid}_${msgId}`;
+            if (processedMessages.has(msgKey)) return;
+            processedMessages.add(msgKey);
+            setTimeout(() => processedMessages.delete(msgKey), 120000); // 2 min memory
 
             const from = msg.key.remoteJid;
+            const isGroup = from.endsWith('@g.us');
             const senderJid = msg.key.participant || msg.key.remoteJid || '';
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
+            // Auto React Functionality
             if (isOwner && currentSettings.autoReactEnabled && currentSettings.ownerReactEmoji) {
                 try {
                     await sock.sendMessage(from, {
@@ -164,7 +192,7 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
-            // Interactive Settings Logic
+            // Interactive Settings Steps
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '1') {
                 userState.set(from, 'AWAITING_BOTNAME_INPUT');
                 return await sock.sendMessage(from, { text: `🤖 *CHANGE BOT NAME*\n\nCurrent Name: *${currentSettings.botName}*\n\nPlease reply with the new Bot Name:` }, { quoted: msg });
@@ -279,13 +307,57 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // Commands Logic
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '7') {
+                userState.set(from, 'AWAITING_MODE_CHOICE');
+                return await sock.sendMessage(from, { text: `🌐 *WORK MODE SETTINGS*\n\nCurrent Mode: *${currentSettings.workMode.toUpperCase()}*\n\n7.1 - Public Mode 🌐\n7.2 - Private / Inbox Mode 🔒\n7.3 - Group Mode 👥` }, { quoted: msg });
+            }
+
+            if (currentState === 'AWAITING_MODE_CHOICE') {
+                if (textMessage === '7.1') {
+                    currentSettings.workMode = 'public';
+                    saveSettings(currentSettings);
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `🌐 *Work Mode Changed To:* PUBLIC (Works Everywhere)` }, { quoted: msg });
+                } else if (textMessage === '7.2') {
+                    currentSettings.workMode = 'private';
+                    saveSettings(currentSettings);
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `🔒 *Work Mode Changed To:* PRIVATE / INBOX (Inbox Only)` }, { quoted: msg });
+                } else if (textMessage === '7.3') {
+                    currentSettings.workMode = 'group';
+                    saveSettings(currentSettings);
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `👥 *Work Mode Changed To:* GROUP (Groups Only)` }, { quoted: msg });
+                }
+            }
+
+            // Command Check
             if (!textMessage.startsWith(currentSettings.currentPrefix)) return;
 
             const args = textMessage.slice(currentSettings.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .botname Command (Direct Change Bot Name)
+            // 3. Mode Filter Logic (Owner ට හැර අනෙක් අයට අදාල වේ)
+            if (!isOwner) {
+                if (currentSettings.workMode === 'private' && isGroup) return;
+                if (currentSettings.workMode === 'group' && !isGroup) return;
+            }
+
+            // .mode Command
+            if (command === 'mode') {
+                if (!isOwner) return;
+                const newMode = args[0]?.toLowerCase();
+                if (!newMode || !['public', 'private', 'inbox', 'group'].includes(newMode)) {
+                    return await sock.sendMessage(from, { text: `⚠️ *Usage:* ${currentSettings.currentPrefix}mode <public | private/inbox | group>\n\n*Current Mode:* ${currentSettings.workMode.toUpperCase()}` }, { quoted: msg });
+                }
+                
+                const setMode = (newMode === 'inbox') ? 'private' : newMode;
+                currentSettings.workMode = setMode;
+                saveSettings(currentSettings);
+                return await sock.sendMessage(from, { text: `✅ *Bot Work Mode Updated To:* ${setMode.toUpperCase()}` }, { quoted: msg });
+            }
+
+            // .botname Command
             if (command === 'botname') {
                 if (!isOwner) return;
                 const newName = args.join(' ');
@@ -340,6 +412,7 @@ async function connectToWhatsApp() {
             else if (command === 'menu' || command === 'help') {
                 const menuText = `✨ *${currentSettings.botName} MAIN MENU* ✨\n\n` +
                                  `🤖 *Bot Name:* ${currentSettings.botName}\n` +
+                                 `🌐 *Work Mode:* ${currentSettings.workMode.toUpperCase()}\n` +
                                  `📌 *Prefix:* [ ${currentSettings.currentPrefix} ]\n` +
                                  `🟢 *Status:* ${currentSettings.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
                                  `👑 *Auto React:* ${currentSettings.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${currentSettings.ownerReactEmoji})\n` +
@@ -350,6 +423,7 @@ async function connectToWhatsApp() {
                                  `│ 📜 *${currentSettings.currentPrefix}menu* - Display Menu\n` +
                                  `│ 🏓 *${currentSettings.currentPrefix}ping* - Speed Test\n` +
                                  `│ ⚙️ *${currentSettings.currentPrefix}setting* - Bot Settings\n` +
+                                 `│ 🌐 *${currentSettings.currentPrefix}mode* - Change Work Mode\n` +
                                  `│ 🤖 *${currentSettings.currentPrefix}botname* - Change Bot Name\n` +
                                  `│ 👁️ *${currentSettings.currentPrefix}vv2* - View Once Downloader\n` +
                                  `│ 🔑 *${currentSettings.currentPrefix}apply* - Connect GitHub\n` +
@@ -379,8 +453,10 @@ async function connectToWhatsApp() {
                                      `*3* - Change Prefix 📌\n` +
                                      `*4* - Auto React Settings 👑\n` +
                                      `*5* - View Once Settings 👁️\n` +
-                                     `*6* - GitHub Config (.apply) 🔑\n\n` +
+                                     `*6* - GitHub Config (.apply) 🔑\n` +
+                                     `*7* - Change Work Mode (Public/Private/Group) 🌐\n\n` +
                                      `_Bot Name: ${currentSettings.botName}_\n` +
+                                     `_Mode: ${currentSettings.workMode.toUpperCase()}_\n` +
                                      `_Status: ${currentSettings.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}_\n` +
                                      `_Prefix: [ ${currentSettings.currentPrefix} ]_\n` +
                                      `_Auto React: ${currentSettings.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${currentSettings.ownerReactEmoji})_\n` +
