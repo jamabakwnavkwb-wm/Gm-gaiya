@@ -13,7 +13,7 @@ let currentPrefix = '.';
 let autoReactEnabled = true;       // Owner Auto React Status
 let ownerReactEmoji = '👑';        // Auto React Emoji
 let autoViewOnce = true;           // View Once Status
-let isPairingRequested = false;
+let pairingRequested = false;      // Pairing Code එක එක වරක් පමණක් Request කිරීමට
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -23,47 +23,58 @@ async function connectToWhatsApp() {
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: ['GM GAIYA - MD', 'Chrome', '1.0.0']
+        browser: ['Ubuntu', 'Chrome', '20.0.04'], // Connection drop වීම වැළැක්වීමට Browser config වෙනස් කරන ලදී
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 0,
+        keepAliveIntervalMs: 10000,
+        emitOwnEvents: true,
+        retryRequestOptions: {
+            maxRetries: 5
+        }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
 
-        // Pairing Code එක හරියටම එක පාරක් ලබාදීම
-        if (!sock.authState.creds.registered && !isPairingRequested) {
-            isPairingRequested = true;
+        // Pairing Code එක එක පාරක් පමණක් සාර්ථකව ලබාදීමට
+        if (!sock.authState.creds.registered && !pairingRequested) {
+            pairingRequested = true;
             setTimeout(async () => {
                 try {
                     let code = await sock.requestPairingCode(PHONE_NUMBER);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
                     console.log(`\n=================================\n🔑 PAIRING CODE: ${code}\n=================================\n`);
                 } catch (error) {
-                    console.log("Pairing code error:", error?.message || error);
-                    isPairingRequested = false;
+                    console.log("Pairing code ලබා ගැනීමේ දෝෂයක්:", error?.message || error);
+                    pairingRequested = false;
                 }
-            }, 3000);
+            }, 6000); // Stable Connection එකක් ලැබෙන තෙක් තත්පර 6ක් Delay කර ඇත
         }
 
         if (connection === 'close') {
-            isPairingRequested = false;
             const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`සම්බන්ධතාවය බිඳ වැටුණි (${statusCode}), නැවත සම්බන්ධ වෙමින්...`);
+            console.log(`සම්බන්ධතාවය බිඳ වැටුණි (Reason: ${statusCode})`);
 
+            // Logged out හෝ Unauthorized වී ඇත්නම් පමණක් Session Delete කරයි
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                console.log("🔴 Session Expired වී ඇත. auth_info_baileys Delete කර නැවත ආරම්භ වේ.");
+                console.log("🔴 Session එක Expire වී ඇත. නැවත සකසමින්...");
+                pairingRequested = false;
                 if (fs.existsSync('auth_info_baileys')) {
                     fs.rmSync('auth_info_baileys', { recursive: true, force: true });
                 }
-            }
-
-            if (shouldReconnect) {
+                setTimeout(() => connectToWhatsApp(), 3000);
+            } else if (statusCode !== DisconnectReason.timedOut && statusCode !== 408) {
+                // Temporary drop එකකදී Reconnect වේ
+                setTimeout(() => connectToWhatsApp(), 3000);
+            } else {
+                console.log("නැවත සම්බන්ධ වීමට උත්සාහ කරයි...");
                 setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
-            console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
+            console.log('✅ GM GAIYA - MD සාර්ථකව WhatsApp සමඟ සම්බන්ධ විය!');
+            pairingRequested = false;
 
             await sock.sendPresenceUpdate(botPresence);
 
@@ -93,7 +104,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // Double Messages Preventer
+            // Message ID duplication preventer
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
