@@ -68,8 +68,6 @@ const processedMessages = new Set();
 const userState = new Map();
 
 let pairingRequested = false;
-
-// Connecting Spam Message එක නැවැත්වීමට Global Flag එකක්
 let hasSentConnectedMsg = false;
 let botStartTime = Math.floor(Date.now() / 1000) - 15;
 
@@ -88,8 +86,11 @@ async function connectToWhatsApp() {
             defaultQueryTimeoutMs: 0,
             keepAliveIntervalMs: 10000,
             syncFullHistory: false,
-            emitOwnEvents: true,
-            // Hello මැසේජ් එක යන bug එක fix කරන ලදී
+            markOnlineOnConnect: true,
+            generateHighQualityLinkPreview: true,
+            // "Waiting for this message" Issue Fixes
+            retryRequestDelayMs: 250,
+            maxMsgRetryCount: 5,
             getMessage: async (key) => {
                 if (store) {
                     try {
