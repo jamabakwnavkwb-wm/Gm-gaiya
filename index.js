@@ -2,14 +2,15 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 const pino = require('pino');
 const fs = require('fs');
 
-const PHONE_NUMBER = "94764802314"; // ඔබගේ WhatsApp අංකය
+// Terminal එකෙන් PHONE_NUMBER දුන්නොත් එය ගනී, නැතහොත් default අංකය ගනී
+const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 
-// Message IDs සහ User States මතකයේ තබා ගැනීමට
 const processedMessages = new Set();
 const userState = new Map();
 
-let botPresence = 'available'; // Default Online Status
-let currentPrefix = '.';       // Default Prefix
+let botPresence = 'available';
+let currentPrefix = '.';
+let isPairingRequested = false; // Pairing code එක දෙපාරක් request වීම වැළැක්වීමට
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -27,8 +28,9 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
-        // Pairing Code එක Request කිරීම (ලියාපදිංචි වී නොමැති නම් පමණි)
-        if (!sock.authState.creds.registered && !sock.authState.creds.me) {
+        // Pairing Code එක හරියටම එක් වරක් පමණක් Display කිරීමට
+        if (!sock.authState.creds.registered && !isPairingRequested) {
+            isPairingRequested = true;
             setTimeout(async () => {
                 try {
                     let code = await sock.requestPairingCode(PHONE_NUMBER);
@@ -36,11 +38,13 @@ async function connectToWhatsApp() {
                     console.log(`\n=================================\n🔑 PAIRING CODE: ${code}\n=================================\n`);
                 } catch (error) {
                     console.log("Pairing code error:", error?.message || error);
+                    isPairingRequested = false;
                 }
-            }, 6000);
+            }, 3000);
         }
 
         if (connection === 'close') {
+            isPairingRequested = false; // Connection වැසුණහොත් නැවත Flag එක Reset කරයි
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log(`සම්බන්ධතාවය බිඳ වැටුණි (${statusCode}), නැවත සම්බන්ධ වෙමින්...`);
@@ -71,7 +75,7 @@ async function connectToWhatsApp() {
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
             } catch (err) {
-                console.error("Connected message යැවීමේ දෝෂයයි:", err);
+                console.error("Connected message error:", err);
             }
         }
     });
@@ -84,7 +88,6 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // ඩූප්‍ලිකේට් Messages වළක්වා ගැනීමට
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
@@ -103,9 +106,7 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
-            // ----------------- INTERACTIVE SETTINGS RESPONSES ----------------- //
-
-            // 1. Online Status Sub-Menu එක තෝරා ගැනීම
+            // Settings Sub-Menu
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '1') {
                 userState.set(from, 'AWAITING_ONLINE_CHOICE');
                 const onlineMenu = `⚙️ *ONLINE STATUS SETTINGS*\n\n` +
@@ -116,7 +117,6 @@ async function connectToWhatsApp() {
                 return await sock.sendMessage(from, { text: onlineMenu }, { quoted: msg });
             }
 
-            // 1.1 හෝ 1.2 මගින් Online/Offline සෙට් කිරීම
             if (currentState === 'AWAITING_ONLINE_CHOICE') {
                 if (textMessage === '1.1') {
                     botPresence = 'available';
@@ -131,18 +131,14 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // 2. Prefix වෙනස් කිරීමේ Sub-Menu එක තෝරා ගැනීම
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '2') {
                 userState.set(from, 'AWAITING_PREFIX_CHOICE');
                 const prefixMenu = `⚙️ *CHANGE BOT PREFIX*\n\n` +
                                    `Current Prefix: [ *${currentPrefix}* ]\n\n` +
-                                   `Reply with the symbol you want to set as Prefix:\n` +
-                                   `Supported: *.*  *,*  ***  *&*  *#*  *@*  */*  *?*  *'*  *;*  *!*\n\n` +
-                                   `_Type and send the symbol directly (e.g., #)_`;
+                                   `Reply with symbol: *.*  *,*  ***  *&*  *#*  *@*  */*  *?*  *'*  *;*  *!*`;
                 return await sock.sendMessage(from, { text: prefixMenu }, { quoted: msg });
             }
 
-            // නව Prefix එක Input කළ විට Update කිරීම
             if (currentState === 'AWAITING_PREFIX_CHOICE') {
                 const allowedPrefixes = ['.', ',', '*', '&', '#', '@', '/', '?', "'", ';', '!'];
                 if (allowedPrefixes.includes(textMessage)) {
@@ -150,18 +146,16 @@ async function connectToWhatsApp() {
                     userState.delete(from);
                     return await sock.sendMessage(from, { text: `✅ *Prefix successfully changed to:* [ *${currentPrefix}* ]` }, { quoted: msg });
                 } else {
-                    return await sock.sendMessage(from, { text: `⚠️ Invalid prefix! Please choose from: . , * & # @ / ? ' ; !` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `⚠️ Invalid prefix! Choose from: . , * & # @ / ? ' ; !` }, { quoted: msg });
                 }
             }
 
-            // ----------------- MAIN COMMANDS ----------------- //
-
+            // Commands
             if (!textMessage.startsWith(currentPrefix)) return;
 
             const args = textMessage.slice(currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // Menu Command
             if (command === 'menu' || command === 'help') {
                 const menuText = `✨ *GM GAIYA - MD MAIN MENU* ✨\n\n` +
                                  `🤖 *Bot Name:* GM GAIYA - MD\n` +
@@ -176,29 +170,19 @@ async function connectToWhatsApp() {
                                  `_POWERED BY GM GAIYA - MD_`;
 
                 await sock.sendMessage(from, { text: menuText }, { quoted: msg });
-            }
-
-            // Ping Command
-            else if (command === 'ping') {
+            } else if (command === 'ping') {
                 const start = Date.now();
                 await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
                 const end = Date.now();
-                const latency = end - start;
-                
-                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${latency}ms*\n\n_GM GAIYA - MD_` }, { quoted: msg });
-            }
-
-            // Setting Command
-            else if (command === 'setting' || command === 'settings') {
+                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${end - start}ms*\n\n_GM GAIYA - MD_` }, { quoted: msg });
+            } else if (command === 'setting' || command === 'settings') {
                 userState.set(from, 'AWAITING_SETTING_CHOICE');
-                
                 const settingsText = `⚙️ *GM GAIYA - MD SETTINGS*\n\n` +
-                                     `Reply with the option number:\n\n` +
+                                     `Reply with option number:\n\n` +
                                      `*1* - Online Status Settings\n` +
                                      `*2* - Change Prefix\n\n` +
                                      `_Current Status: ${botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}_\n` +
                                      `_Current Prefix: [ ${currentPrefix} ]_`;
-                
                 await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
             }
 
