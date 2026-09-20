@@ -13,7 +13,7 @@ const fs = require('fs');
 
 const CONFIG_FILE = './config.json';
 
-// Default Configurations
+// Settings Variables
 let config = {
     botPresence: 'available',
     currentPrefix: '!',
@@ -25,7 +25,7 @@ let config = {
     githubRepo: process.env.GITHUB_REPO || "Gm-gaiya"
 };
 
-// Save Configurations to JSON file (Restart වූ පසුත් දත්ත ඉතිරි වේ)
+// Data Load & Save logic
 function loadConfig() {
     if (fs.existsSync(CONFIG_FILE)) {
         try {
@@ -284,7 +284,8 @@ async function connectToWhatsApp() {
 
                 const inputData = args.join(' ').trim();
                 if (!inputData) {
-                    return await sock.sendMessage(from, { text: "⚠️ කරුණාකර " + config.currentPrefix + "apply <GitHub Token / Link / Repo Name> ලෙස යවන්න!" }, { quoted: msg });
+                    const helpText = `⚠️ කරුණාකර ${config.currentPrefix}apply <GitHub Token / Link / Repo Name> ලෙස යවන්න!`;
+                    return await sock.sendMessage(from, { text: helpText }, { quoted: msg });
                 }
 
                 if (inputData.startsWith('ghp_') || inputData.includes('github.com')) {
