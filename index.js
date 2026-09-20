@@ -38,7 +38,7 @@ const defaultSettings = {
     autoReactEnabled: true,
     ownerReactEmoji: '👑',
     autoViewOnce: true,
-    workMode: 'public', // Modes: 'public', 'private', 'group'
+    workMode: 'public', // Modes: 'public', 'private', 'group', 'inbox'
     githubToken: '',
     githubRepo: ''
 };
@@ -89,6 +89,7 @@ async function connectToWhatsApp() {
             keepAliveIntervalMs: 10000,
             syncFullHistory: false,
             emitOwnEvents: true,
+            // Hello මැසේජ් එක යන bug එක fix කරන ලදී
             getMessage: async (key) => {
                 if (store) {
                     try {
@@ -96,7 +97,7 @@ async function connectToWhatsApp() {
                         return msg?.message || undefined;
                     } catch (e) {}
                 }
-                return { conversation: 'Hello' };
+                return undefined;
             }
         });
 
