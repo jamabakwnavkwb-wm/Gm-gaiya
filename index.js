@@ -9,6 +9,7 @@ const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 
 // Default Settings Structure
 const defaultSettings = {
+    botName: 'GM GAIYA - MD',
     botPresence: 'available',
     currentPrefix: '.',
     autoReactEnabled: true,
@@ -96,7 +97,7 @@ async function connectToWhatsApp() {
             }
             setTimeout(() => connectToWhatsApp(), 3000);
         } else if (connection === 'open') {
-            console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
+            console.log(`✅ ${currentSettings.botName} සාර්ථකව සම්බන්ධ විය!`);
             pairingRequested = false;
 
             await sock.sendPresenceUpdate(currentSettings.botPresence);
@@ -106,14 +107,14 @@ async function connectToWhatsApp() {
                 try {
                     const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
                     const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
-                                             `🤖 *Bot Name:* GM GAIYA - MD\n` +
+                                             `🤖 *Bot Name:* ${currentSettings.botName}\n` +
                                              `• *Status:* Active 🟢\n` +
                                              `• *Prefix:* [ ${currentSettings.currentPrefix} ]\n` +
                                              `• *Auto React:* ${currentSettings.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${currentSettings.ownerReactEmoji})\n` +
                                              `• *View Once Download:* ${currentSettings.autoViewOnce ? 'ON 🟢' : 'OFF 🔴'}\n` +
                                              `• *GitHub Token:* ${currentSettings.githubToken ? 'SET 🟢' : 'NOT SET 🔴'}\n` +
                                              `• *GitHub Repo:* ${currentSettings.githubRepo ? currentSettings.githubRepo : 'NOT SET 🔴'}\n\n` +
-                                             `_GM GAIYA - MD Bot is now ready to use!_`;
+                                             `_${currentSettings.botName} is now ready to use!_`;
 
                     await sock.sendMessage(botJid, { text: connectedMessage });
                 } catch (err) {
@@ -165,18 +166,30 @@ async function connectToWhatsApp() {
 
             // Interactive Settings Logic
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '1') {
+                userState.set(from, 'AWAITING_BOTNAME_INPUT');
+                return await sock.sendMessage(from, { text: `🤖 *CHANGE BOT NAME*\n\nCurrent Name: *${currentSettings.botName}*\n\nPlease reply with the new Bot Name:` }, { quoted: msg });
+            }
+
+            if (currentState === 'AWAITING_BOTNAME_INPUT') {
+                currentSettings.botName = textMessage.trim();
+                saveSettings(currentSettings);
+                userState.delete(from);
+                return await sock.sendMessage(from, { text: `✅ *Bot Name Updated To:* ${currentSettings.botName}` }, { quoted: msg });
+            }
+
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '2') {
                 userState.set(from, 'AWAITING_ONLINE_CHOICE');
-                return await sock.sendMessage(from, { text: `⚙️ *ONLINE STATUS*\n\n1.1 - Online 🟢\n1.2 - Offline 🔴` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `⚙️ *ONLINE STATUS*\n\n2.1 - Online 🟢\n2.2 - Offline 🔴` }, { quoted: msg });
             }
 
             if (currentState === 'AWAITING_ONLINE_CHOICE') {
-                if (textMessage === '1.1') {
+                if (textMessage === '2.1') {
                     currentSettings.botPresence = 'available';
                     saveSettings(currentSettings);
                     await sock.sendPresenceUpdate('available');
                     userState.delete(from);
                     return await sock.sendMessage(from, { text: `✅ *Online Status:* ON 🟢` }, { quoted: msg });
-                } else if (textMessage === '1.2') {
+                } else if (textMessage === '2.2') {
                     currentSettings.botPresence = 'unavailable';
                     saveSettings(currentSettings);
                     await sock.sendPresenceUpdate('unavailable');
@@ -185,7 +198,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '2') {
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '3') {
                 userState.set(from, 'AWAITING_PREFIX_CHOICE');
                 return await sock.sendMessage(from, { text: `⚙️ *CHANGE PREFIX*\n\nCurrent: [ *${currentSettings.currentPrefix}* ]\nReply with new symbol: . , * & # @ / ? ' ; !` }, { quoted: msg });
             }
@@ -200,23 +213,23 @@ async function connectToWhatsApp() {
                 }
             }
 
-            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '3') {
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '4') {
                 userState.set(from, 'AWAITING_REACT_CHOICE');
-                return await sock.sendMessage(from, { text: `⚙️ *AUTO REACT*\n\n3.1 - Enable 🟢\n3.2 - Disable 🔴\n3.3 - Change Emoji` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `⚙️ *AUTO REACT*\n\n4.1 - Enable 🟢\n4.2 - Disable 🔴\n4.3 - Change Emoji` }, { quoted: msg });
             }
 
             if (currentState === 'AWAITING_REACT_CHOICE') {
-                if (textMessage === '3.1') {
+                if (textMessage === '4.1') {
                     currentSettings.autoReactEnabled = true;
                     saveSettings(currentSettings);
                     userState.delete(from);
                     return await sock.sendMessage(from, { text: `🟢 *Auto React:* Enabled (${currentSettings.ownerReactEmoji})` }, { quoted: msg });
-                } else if (textMessage === '3.2') {
+                } else if (textMessage === '4.2') {
                     currentSettings.autoReactEnabled = false;
                     saveSettings(currentSettings);
                     userState.delete(from);
                     return await sock.sendMessage(from, { text: `🔴 *Auto React:* Disabled` }, { quoted: msg });
-                } else if (textMessage === '3.3') {
+                } else if (textMessage === '4.3') {
                     userState.set(from, 'AWAITING_EMOJI_INPUT');
                     return await sock.sendMessage(from, { text: `Send new Emoji:` }, { quoted: msg });
                 }
@@ -229,18 +242,18 @@ async function connectToWhatsApp() {
                 return await sock.sendMessage(from, { text: `✅ *Emoji Changed To:* ${currentSettings.ownerReactEmoji}` }, { quoted: msg });
             }
 
-            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '4') {
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '5') {
                 userState.set(from, 'AWAITING_VO_CHOICE');
-                return await sock.sendMessage(from, { text: `👁️ *VIEW ONCE*\n\n4.1 - Enable 🟢\n4.2 - Disable 🔴` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `👁️ *VIEW ONCE*\n\n5.1 - Enable 🟢\n5.2 - Disable 🔴` }, { quoted: msg });
             }
 
             if (currentState === 'AWAITING_VO_CHOICE') {
-                if (textMessage === '4.1') {
+                if (textMessage === '5.1') {
                     currentSettings.autoViewOnce = true;
                     saveSettings(currentSettings);
                     userState.delete(from);
                     return await sock.sendMessage(from, { text: `🟢 *View Once:* Enabled` }, { quoted: msg });
-                } else if (textMessage === '4.2') {
+                } else if (textMessage === '5.2') {
                     currentSettings.autoViewOnce = false;
                     saveSettings(currentSettings);
                     userState.delete(from);
@@ -248,7 +261,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '5') {
+            if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '6') {
                 userState.set(from, 'AWAITING_APPLY_INPUT');
                 return await sock.sendMessage(from, { text: `🔑 *GITHUB CONFIGURATION*\n\nPlease reply with your GitHub Token and Repo Name:\n\n*Format:* \`<token> <reponame>\`\n*Example:* \`ghp_xxxxxx my-bot-repo\`` }, { quoted: msg });
             }
@@ -272,7 +285,19 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(currentSettings.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .apply Command (Fixed Syntax)
+            // .botname Command (Direct Change Bot Name)
+            if (command === 'botname') {
+                if (!isOwner) return;
+                const newName = args.join(' ');
+                if (!newName) {
+                    return await sock.sendMessage(from, { text: `⚠️ Usage: *${currentSettings.currentPrefix}botname <New Bot Name>*` }, { quoted: msg });
+                }
+                currentSettings.botName = newName;
+                saveSettings(currentSettings);
+                return await sock.sendMessage(from, { text: `✅ *Bot Name Changed Successfully To:* ${newName}` }, { quoted: msg });
+            }
+
+            // .apply Command
             if (command === 'apply') {
                 if (!isOwner) return;
                 const token = args[0];
@@ -313,8 +338,8 @@ async function connectToWhatsApp() {
 
             // Menu Command
             else if (command === 'menu' || command === 'help') {
-                const menuText = `✨ *GM GAIYA - MD MAIN MENU* ✨\n\n` +
-                                 `🤖 *Bot Name:* GM GAIYA - MD\n` +
+                const menuText = `✨ *${currentSettings.botName} MAIN MENU* ✨\n\n` +
+                                 `🤖 *Bot Name:* ${currentSettings.botName}\n` +
                                  `📌 *Prefix:* [ ${currentSettings.currentPrefix} ]\n` +
                                  `🟢 *Status:* ${currentSettings.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
                                  `👑 *Auto React:* ${currentSettings.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${currentSettings.ownerReactEmoji})\n` +
@@ -325,12 +350,13 @@ async function connectToWhatsApp() {
                                  `│ 📜 *${currentSettings.currentPrefix}menu* - Display Menu\n` +
                                  `│ 🏓 *${currentSettings.currentPrefix}ping* - Speed Test\n` +
                                  `│ ⚙️ *${currentSettings.currentPrefix}setting* - Bot Settings\n` +
+                                 `│ 🤖 *${currentSettings.currentPrefix}botname* - Change Bot Name\n` +
                                  `│ 👁️ *${currentSettings.currentPrefix}vv2* - View Once Downloader\n` +
                                  `│ 🔑 *${currentSettings.currentPrefix}apply* - Connect GitHub\n` +
                                  `│ 🔄 *${currentSettings.currentPrefix}update* - Pull Updates\n` +
                                  `│ ⚙️ *${currentSettings.currentPrefix}customreset* - Reset Settings\n` +
                                  `└──────────────\n\n` +
-                                 `_POWERED BY GM GAIYA - MD_`;
+                                 `_POWERED BY ${currentSettings.botName}_`;
 
                 await sock.sendMessage(from, { text: menuText }, { quoted: msg });
             }
@@ -340,19 +366,21 @@ async function connectToWhatsApp() {
                 const start = Date.now();
                 await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
                 const end = Date.now();
-                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${end - start}ms*\n\n_GM GAIYA - MD_` }, { quoted: msg });
+                await sock.sendMessage(from, { text: `🏓 *Pong!*\nSpeed: *${end - start}ms*\n\n_${currentSettings.botName}_` }, { quoted: msg });
             }
 
             // Setting Command
             else if (command === 'setting' || command === 'settings') {
                 userState.set(from, 'AWAITING_SETTING_CHOICE');
-                const settingsText = `⚙️ *GM GAIYA - MD SETTINGS*\n\n` +
+                const settingsText = `⚙️ *${currentSettings.botName} SETTINGS*\n\n` +
                                      `Reply with option number:\n\n` +
-                                     `*1* - Online Status Settings\n` +
-                                     `*2* - Change Prefix\n` +
-                                     `*3* - Auto React Settings 👑\n` +
-                                     `*4* - View Once Settings 👁️\n` +
-                                     `*5* - GitHub Config (.apply) 🔑\n\n` +
+                                     `*1* - Change Bot Name 🤖\n` +
+                                     `*2* - Online Status Settings 🟢\n` +
+                                     `*3* - Change Prefix 📌\n` +
+                                     `*4* - Auto React Settings 👑\n` +
+                                     `*5* - View Once Settings 👁️\n` +
+                                     `*6* - GitHub Config (.apply) 🔑\n\n` +
+                                     `_Bot Name: ${currentSettings.botName}_\n` +
                                      `_Status: ${currentSettings.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}_\n` +
                                      `_Prefix: [ ${currentSettings.currentPrefix} ]_\n` +
                                      `_Auto React: ${currentSettings.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${currentSettings.ownerReactEmoji})_\n` +
