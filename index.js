@@ -9,22 +9,46 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { exec } = require('child_process');
+const fs = require('fs');
+
+const CONFIG_FILE = './config.json';
+
+// Default Configurations
+let config = {
+    botPresence: 'available',
+    currentPrefix: '!',
+    workMode: 'private',
+    autoReactEnabled: true,
+    ownerReactEmoji: '👑',
+    viewOnceDownload: true,
+    githubToken: process.env.GITHUB_TOKEN || "NOT SET",
+    githubRepo: process.env.GITHUB_REPO || "Gm-gaiya"
+};
+
+// Save Configurations to JSON file (Restart වූ පසුත් දත්ත ඉතිරි වේ)
+function loadConfig() {
+    if (fs.existsSync(CONFIG_FILE)) {
+        try {
+            const data = fs.readFileSync(CONFIG_FILE, 'utf8');
+            config = { ...config, ...JSON.parse(data) };
+        } catch (e) {
+            console.error("Config load error:", e);
+        }
+    }
+}
+
+function saveConfig() {
+    try {
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    } catch (e) {
+        console.error("Config save error:", e);
+    }
+}
+
+loadConfig();
 
 const processedMessages = new Set();
 const userState = new Map();
-
-// Settings Variables
-let botPresence = 'available';  // Default Online
-let currentPrefix = '!';        // Current Prefix
-let workMode = 'private';       // Work Mode
-let autoReactEnabled = true;     // Auto React
-let ownerReactEmoji = '👑';      // React Emoji
-let viewOnceDownload = true;    // View Once Download Status
-
-// GitHub Settings Variables
-let githubToken = process.env.GITHUB_TOKEN || "NOT SET";
-let githubRepo = process.env.GITHUB_REPO || "Gm-gaiya";
-
 const ownerNumber = process.env.PHONE_NUMBER || "94764802314";
 
 async function connectToWhatsApp() {
@@ -75,21 +99,21 @@ async function connectToWhatsApp() {
         } else if (connection === 'open') {
             console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
 
-            await sock.sendPresenceUpdate(botPresence);
+            await sock.sendPresenceUpdate(config.botPresence);
 
             try {
                 const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                const tokenStatus = githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴";
+                const tokenStatus = config.githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴";
                 
                 const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
                                          `🤖 *Bot Name:* GM GAIYA - MD\n` +
-                                         `⚙️ *Work Mode:* ${workMode.toUpperCase()}\n` +
+                                         `⚙️ *Work Mode:* ${config.workMode.toUpperCase()}\n` +
                                          `• *Status:* Active 🟢\n` +
-                                         `• *Prefix:* [ ${currentPrefix} ]\n` +
-                                         `• *Auto React:* ${autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${ownerReactEmoji})\n` +
-                                         `• *View Once Download:* ${viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
+                                         `• *Prefix:* [ ${config.currentPrefix} ]\n` +
+                                         `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmoji})\n` +
+                                         `• *View Once Download:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
                                          `• *GitHub Token:* ${tokenStatus}\n` +
-                                         `• *GitHub Repo:* ${githubRepo}\n\n` +
+                                         `• *GitHub Repo:* ${config.githubRepo}\n\n` +
                                          `_GM GAIYA - MD is now ready to use!_`;
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
@@ -117,12 +141,12 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === ownerNumber || msg.key.fromMe;
 
-            await sock.sendPresenceUpdate(botPresence);
+            await sock.sendPresenceUpdate(config.botPresence);
 
             // Auto React
-            if (isOwner && autoReactEnabled && ownerReactEmoji) {
+            if (isOwner && config.autoReactEnabled && config.ownerReactEmoji) {
                 try {
-                    await sock.sendMessage(from, { react: { text: ownerReactEmoji, key: msg.key } });
+                    await sock.sendMessage(from, { react: { text: config.ownerReactEmoji, key: msg.key } });
                 } catch (e) {}
             }
 
@@ -137,18 +161,19 @@ async function connectToWhatsApp() {
             if (!textMessage) return;
 
             if (!isOwner) {
-                if (workMode === 'private') return; 
-                if (workMode === 'group' && !isGroup) return; 
-                if (workMode === 'inbox' && isGroup) return;  
+                if (config.workMode === 'private') return; 
+                if (config.workMode === 'group' && !isGroup) return; 
+                if (config.workMode === 'inbox' && isGroup) return;  
             }
 
             const currentState = userState.get(from);
 
-            // ----------------- INTERACTIVE MENU RESPONSES ----------------- //
+            // ----------------- INTERACTIVE RESPONSES ----------------- //
 
             if (currentState && currentState.type === 'CONFIRM_TOKEN') {
                 if (textMessage === '1') {
-                    githubToken = currentState.data;
+                    config.githubToken = currentState.data;
+                    saveConfig();
                     userState.delete(from);
                     return await sock.sendMessage(from, { text: `✅ *GitHub Token successfully updated & saved!* 🟢` }, { quoted: msg });
                 } else if (textMessage === '2') {
@@ -159,9 +184,10 @@ async function connectToWhatsApp() {
 
             if (currentState && currentState.type === 'CONFIRM_REPO') {
                 if (textMessage === '1') {
-                    githubRepo = currentState.data;
+                    config.githubRepo = currentState.data;
+                    saveConfig();
                     userState.delete(from);
-                    return await sock.sendMessage(from, { text: `✅ *GitHub Repo Name updated to:* [ *${githubRepo}* ] 🟢` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `✅ *GitHub Repo Name updated to:* [ *${config.githubRepo}* ] 🟢` }, { quoted: msg });
                 } else if (textMessage === '2') {
                     userState.delete(from);
                     return await sock.sendMessage(from, { text: `❌ *GitHub Repo update cancelled!*` }, { quoted: msg });
@@ -178,7 +204,7 @@ async function connectToWhatsApp() {
                 else if (textMessage === '2') {
                     userState.set(from, 'AWAITING_PREFIX_CHOICE');
                     return await sock.sendMessage(from, { 
-                        text: `⚙️ *CHANGE PREFIX*\n\nCurrent: [ *${currentPrefix}* ]\nSend desired prefix symbol (e.g., # , . , !)` 
+                        text: `⚙️ *CHANGE PREFIX*\n\nCurrent: [ *${config.currentPrefix}* ]\nSend desired prefix symbol (e.g., # , . , !)` 
                     }, { quoted: msg });
                 }
                 else if (textMessage === '3') {
@@ -194,81 +220,85 @@ async function connectToWhatsApp() {
                     }, { quoted: msg });
                 }
                 else if (textMessage === '5') {
-                    viewOnceDownload = !viewOnceDownload;
+                    config.viewOnceDownload = !config.viewOnceDownload;
+                    saveConfig();
                     userState.delete(from);
-                    return await sock.sendMessage(from, { text: `👁️ *View Once Downloader is now:* ${viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `👁️ *View Once Downloader is now:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}` }, { quoted: msg });
                 }
             }
 
             if (currentState === 'AWAITING_ONLINE_CHOICE') {
-                if (textMessage === '1.1') botPresence = 'available';
-                if (textMessage === '1.2') botPresence = 'unavailable';
+                if (textMessage === '1.1') config.botPresence = 'available';
+                if (textMessage === '1.2') config.botPresence = 'unavailable';
+                saveConfig();
                 userState.delete(from);
                 return await sock.sendMessage(from, { text: `✅ *Online Status Updated!*` }, { quoted: msg });
             }
 
             if (currentState === 'AWAITING_PREFIX_CHOICE') {
-                currentPrefix = textMessage.trim()[0] || currentPrefix;
+                config.currentPrefix = textMessage.trim()[0] || config.currentPrefix;
+                saveConfig();
                 userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *Prefix set to:* [ *${currentPrefix}* ]` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `✅ *Prefix set to:* [ *${config.currentPrefix}* ]` }, { quoted: msg });
             }
 
             if (currentState === 'AWAITING_MODE_CHOICE') {
-                if (textMessage === '3.1') workMode = 'private';
-                if (textMessage === '3.2') workMode = 'group';
-                if (textMessage === '3.3') workMode = 'inbox';
-                if (textMessage === '3.4') workMode = 'public';
+                if (textMessage === '3.1') config.workMode = 'private';
+                if (textMessage === '3.2') config.workMode = 'group';
+                if (textMessage === '3.3') config.workMode = 'inbox';
+                if (textMessage === '3.4') config.workMode = 'public';
+                saveConfig();
                 userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *Work Mode set to:* ${workMode.toUpperCase()}` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `✅ *Work Mode set to:* ${config.workMode.toUpperCase()}` }, { quoted: msg });
             }
 
             if (currentState === 'AWAITING_REACT_CHOICE') {
-                if (textMessage === '4.1') autoReactEnabled = true;
-                if (textMessage === '4.2') autoReactEnabled = false;
+                if (textMessage === '4.1') config.autoReactEnabled = true;
+                if (textMessage === '4.2') config.autoReactEnabled = false;
                 if (textMessage === '4.3') {
                     userState.set(from, 'AWAITING_EMOJI');
                     return await sock.sendMessage(from, { text: `Send the new Emoji:` }, { quoted: msg });
                 }
+                saveConfig();
                 userState.delete(from);
                 return await sock.sendMessage(from, { text: `✅ *Auto React Updated!*` }, { quoted: msg });
             }
 
             if (currentState === 'AWAITING_EMOJI') {
-                ownerReactEmoji = textMessage.trim();
+                config.ownerReactEmoji = textMessage.trim();
+                saveConfig();
                 userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *Emoji updated to:* ${ownerReactEmoji}` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `✅ *Emoji updated to:* ${config.ownerReactEmoji}` }, { quoted: msg });
             }
 
             // ----------------- COMMANDS ----------------- //
 
-            if (!textMessage.startsWith(currentPrefix)) return;
+            if (!textMessage.startsWith(config.currentPrefix)) return;
 
-            const args = textMessage.slice(currentPrefix.length).trim().split(/ +/);
+            const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .apply Command (For Token or Repo link)
+            // .apply Command
             if (command === 'apply') {
                 if (!isOwner) return;
 
                 const inputData = args.join(' ').trim();
                 if (!inputData) {
-                    return await sock.sendMessage(from, { text: `⚠️ කරුණාකර `.apply <GitHub Token / Link / Repo Name>` ලෙස ලබා දෙන්න!` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: "⚠️ කරුණාකර " + config.currentPrefix + "apply <GitHub Token / Link / Repo Name> ලෙස යවන්න!" }, { quoted: msg });
                 }
 
-                // Check if input is GitHub Token or Link
                 if (inputData.startsWith('ghp_') || inputData.includes('github.com')) {
-                    const tokenValue = inputData.includes('github.com') ? inputData : inputData;
+                    const tokenValue = inputData;
                     userState.set(from, { type: 'CONFIRM_TOKEN', data: tokenValue });
 
                     const menuMsg = `⚙️ *GITHUB TOKEN SETTINGS*\n\n` +
                                     `Do you want to save this Token?\n` +
-                                    `🔑 *Token/Link:* \`${tokenValue.substring(0, 10)}...\`\n\n` +
+                                    `🔑 *Token/Link:* ${tokenValue.substring(0, 12)}...\n\n` +
                                     `Reply with option:\n` +
                                     `*1* - Save GitHub Token 🟢\n` +
                                     `*2* - Cancel 🔴`;
                     return await sock.sendMessage(from, { text: menuMsg }, { quoted: msg });
                 } else {
-                    // Treat as Repo Name
                     userState.set(from, { type: 'CONFIRM_REPO', data: inputData });
 
                     const menuMsg = `⚙️ *GITHUB REPO SETTINGS*\n\n` +
@@ -293,13 +323,13 @@ async function connectToWhatsApp() {
                                      `*4* - Auto React Settings\n` +
                                      `*5* - Toggle View Once Downloader\n\n` +
                                      `📌 *CURRENT CONFIGURATION*\n` +
-                                     `• *Prefix:* [ ${currentPrefix} ]\n` +
-                                     `• *Work Mode:* ${workMode.toUpperCase()}\n` +
-                                     `• *Online Status:* ${botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
-                                     `• *Auto React:* ${autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${ownerReactEmoji})\n` +
-                                     `• *View Once:* ${viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
-                                     `• *GitHub Token:* ${githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴"}\n` +
-                                     `• *GitHub Repo:* ${githubRepo}`;
+                                     `• *Prefix:* [ ${config.currentPrefix} ]\n` +
+                                     `• *Work Mode:* ${config.workMode.toUpperCase()}\n` +
+                                     `• *Online Status:* ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
+                                     `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmoji})\n` +
+                                     `• *View Once:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
+                                     `• *GitHub Token:* ${config.githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴"}\n` +
+                                     `• *GitHub Repo:* ${config.githubRepo}`;
 
                 await sock.sendMessage(from, { text: settingsText }, { quoted: msg });
             }
@@ -308,16 +338,16 @@ async function connectToWhatsApp() {
             else if (command === 'menu' || command === 'help') {
                 const menuText = `✨ *GM GAIYA - MD MAIN MENU* ✨\n\n` +
                                  `🤖 *Bot Name:* GM GAIYA - MD\n` +
-                                 `⚙️ *Mode:* ${workMode.toUpperCase()}\n` +
-                                 `📌 *Prefix:* [ ${currentPrefix} ]\n\n` +
+                                 `⚙️ *Mode:* ${config.workMode.toUpperCase()}\n` +
+                                 `📌 *Prefix:* [ ${config.currentPrefix} ]\n\n` +
                                  `*AVAILABLE COMMANDS:*\n` +
                                  `┌──────────────\n` +
-                                 `│ 📜 *${currentPrefix}menu* - Display Menu\n` +
-                                 `│ 🏓 *${currentPrefix}ping* - Speed Test\n` +
-                                 `│ ⚙️ *${currentPrefix}setting* - Bot Settings\n` +
-                                 `│ 🔑 *${currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
-                                 `│ 🔄 *${currentPrefix}update* - Git Update\n` +
-                                 `│ 👁️ *${currentPrefix}vv2* - View Once Downloader\n` +
+                                 `│ 📜 *${config.currentPrefix}menu* - Display Menu\n` +
+                                 `│ 🏓 *${config.currentPrefix}ping* - Speed Test\n` +
+                                 `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings\n` +
+                                 `│ 🔑 *${config.currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
+                                 `│ 🔄 *${config.currentPrefix}update* - Git Update\n` +
+                                 `│ 👁️ *${config.currentPrefix}vv2* - View Once Downloader\n` +
                                  `└──────────────`;
 
                 await sock.sendMessage(from, { text: menuText }, { quoted: msg });
@@ -344,7 +374,7 @@ async function connectToWhatsApp() {
 
             // View Once Command
             else if (command === 'vv2' || command === 'vv') {
-                if (!viewOnceDownload) return await sock.sendMessage(from, { text: `⚠️ View Once Downloader is disabled in Settings!` }, { quoted: msg });
+                if (!config.viewOnceDownload) return await sock.sendMessage(from, { text: `⚠️ View Once Downloader is disabled in Settings!` }, { quoted: msg });
 
                 const quotedMsg = msg.message.extendedTextMessage?.contextInfo?.quotedMessage;
                 if (!quotedMsg) return await sock.sendMessage(from, { text: `⚠️ View Once Message එකකට Reply කරන්න!` }, { quoted: msg });
