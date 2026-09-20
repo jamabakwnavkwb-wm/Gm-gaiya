@@ -69,7 +69,7 @@ const userState = new Map();
 
 let pairingRequested = false;
 
-// Connecting Spam Message එක නැවැත්වීමට Global Flag එකක් (Restart වෙනකම් එක් පාරක් පමණක් යවයි)
+// Connecting Spam Message එක නැවැත්වීමට Global Flag එකක්
 let hasSentConnectedMsg = false;
 let botStartTime = Math.floor(Date.now() / 1000) - 15;
 
@@ -139,7 +139,6 @@ async function connectToWhatsApp() {
                 
                 await sock.sendPresenceUpdate(currentSettings.botPresence).catch(() => {});
 
-                // Spam වීම වැළැක්වීම: Process එක On වූ පසු එකම එක පාරක් පමණක් මැසේජ් එක යවයි
                 if (!hasSentConnectedMsg) {
                     hasSentConnectedMsg = true;
                     try {
@@ -170,14 +169,12 @@ async function connectToWhatsApp() {
                 const msg = messages[0];
                 if (!msg || !msg.message) return;
 
-                // 1. Ignore messages before bot startup
                 const msgTimestamp = typeof msg.messageTimestamp === 'number' 
                     ? msg.messageTimestamp 
                     : msg.messageTimestamp?.low || 0;
 
                 if (msgTimestamp && msgTimestamp < botStartTime) return;
 
-                // 2. Prevent Double Message Processing
                 const msgId = msg.key.id;
                 const msgKey = `${msg.key.remoteJid}_${msgId}`;
                 if (processedMessages.has(msgKey)) return;
@@ -326,27 +323,34 @@ async function connectToWhatsApp() {
                     }
                 }
 
+                // WORK MODE SETTINGS INTERACTIVE SELECTION
                 if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '7') {
                     userState.set(from, 'AWAITING_MODE_CHOICE');
-                    return await sock.sendMessage(from, { text: `🌐 *WORK MODE SETTINGS*\n\nCurrent Mode: *${currentSettings.workMode.toUpperCase()}*\n\n7.1 - Public Mode 🌐\n7.2 - Private / Inbox Mode 🔒\n7.3 - Group Mode 👥` }, { quoted: msg });
+                    const modeMenu = `🌐 *WORK MODE SETTINGS*\n\n` +
+                                     `Current Mode: *${currentSettings.workMode.toUpperCase()}*\n\n` +
+                                     `7.1 - Private 🔒\n` +
+                                     `7.2 - Group 👥\n` +
+                                     `7.3 - Inbox 📥\n\n` +
+                                     `Reply with option number (e.g. 7.1):`;
+                    return await sock.sendMessage(from, { text: modeMenu }, { quoted: msg });
                 }
 
                 if (currentState === 'AWAITING_MODE_CHOICE') {
                     if (textMessage === '7.1') {
-                        currentSettings.workMode = 'public';
-                        saveSettings(currentSettings);
-                        userState.delete(from);
-                        return await sock.sendMessage(from, { text: `🌐 *Work Mode Changed To:* PUBLIC (Works Everywhere)` }, { quoted: msg });
-                    } else if (textMessage === '7.2') {
                         currentSettings.workMode = 'private';
                         saveSettings(currentSettings);
                         userState.delete(from);
-                        return await sock.sendMessage(from, { text: `🔒 *Work Mode Changed To:* PRIVATE / INBOX (Inbox Only)` }, { quoted: msg });
-                    } else if (textMessage === '7.3') {
+                        return await sock.sendMessage(from, { text: `🔒 *Work Mode Changed To:* PRIVATE` }, { quoted: msg });
+                    } else if (textMessage === '7.2') {
                         currentSettings.workMode = 'group';
                         saveSettings(currentSettings);
                         userState.delete(from);
-                        return await sock.sendMessage(from, { text: `👥 *Work Mode Changed To:* GROUP (Groups Only)` }, { quoted: msg });
+                        return await sock.sendMessage(from, { text: `👥 *Work Mode Changed To:* GROUP` }, { quoted: msg });
+                    } else if (textMessage === '7.3') {
+                        currentSettings.workMode = 'inbox';
+                        saveSettings(currentSettings);
+                        userState.delete(from);
+                        return await sock.sendMessage(from, { text: `📥 *Work Mode Changed To:* INBOX` }, { quoted: msg });
                     }
                 }
 
@@ -358,22 +362,21 @@ async function connectToWhatsApp() {
 
                 // Work Mode Filter Check (Applies to Non-Owner)
                 if (!isOwner) {
-                    if (currentSettings.workMode === 'private' && isGroup) return;
+                    if ((currentSettings.workMode === 'private' || currentSettings.workMode === 'inbox') && isGroup) return;
                     if (currentSettings.workMode === 'group' && !isGroup) return;
                 }
 
-                // .mode Command
+                // .mode Command Direct Option
                 if (command === 'mode') {
                     if (!isOwner) return;
                     const newMode = args[0]?.toLowerCase();
-                    if (!newMode || !['public', 'private', 'inbox', 'group'].includes(newMode)) {
-                        return await sock.sendMessage(from, { text: `⚠️ *Usage:* ${currentSettings.currentPrefix}mode <public | private/inbox | group>\n\n*Current Mode:* ${currentSettings.workMode.toUpperCase()}` }, { quoted: msg });
+                    if (!newMode || !['private', 'group', 'inbox', 'public'].includes(newMode)) {
+                        return await sock.sendMessage(from, { text: `⚠️ *Usage:* ${currentSettings.currentPrefix}mode <private | group | inbox | public>\n\n*Current Mode:* ${currentSettings.workMode.toUpperCase()}` }, { quoted: msg });
                     }
                     
-                    const setMode = (newMode === 'inbox') ? 'private' : newMode;
-                    currentSettings.workMode = setMode;
+                    currentSettings.workMode = newMode;
                     saveSettings(currentSettings);
-                    return await sock.sendMessage(from, { text: `✅ *Bot Work Mode Updated To:* ${setMode.toUpperCase()}` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `✅ *Bot Work Mode Updated To:* ${newMode.toUpperCase()}` }, { quoted: msg });
                 }
 
                 // .botname Command
@@ -473,7 +476,7 @@ async function connectToWhatsApp() {
                                          `*4* - Auto React Settings 👑\n` +
                                          `*5* - View Once Settings 👁️\n` +
                                          `*6* - GitHub Config (.apply) 🔑\n` +
-                                         `*7* - Change Work Mode (Public/Private/Group) 🌐\n\n` +
+                                         `*7* - Change Work Mode (Private/Group/Inbox) 🌐\n\n` +
                                          `_Bot Name: ${currentSettings.botName}_\n` +
                                          `_Mode: ${currentSettings.workMode.toUpperCase()}_\n` +
                                          `_Status: ${currentSettings.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}_\n` +
