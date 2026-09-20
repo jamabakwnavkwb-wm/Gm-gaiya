@@ -44,8 +44,8 @@ const processedMessages = new Set();
 const userState = new Map();
 
 let pairingRequested = false;
-let isConnectedMessageSent = false; // Prevents double connect messages
-const botStartTime = Math.floor(Date.now() / 1000); // Prevents old messages from firing after restart
+let isConnectedMessageSent = false; 
+const botStartTime = Math.floor(Date.now() / 1000);
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -59,7 +59,7 @@ async function connectToWhatsApp() {
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000,
-        syncFullHistory: false, // Disables downloading old history to stop "Waiting for message" loop
+        syncFullHistory: false,
         emitOwnEvents: true
     });
 
@@ -68,14 +68,24 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
-        // Single Pairing Code Trigger
         if (!sock.authState.creds.registered && !pairingRequested) {
             pairingRequested = true;
             setTimeout(async () => {
                 try {
                     let code = await sock.requestPairingCode(PHONE_NUMBER);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    console.log(`\n=================================\n🔑 PAIRING CODE: ${code}\n=================================\n`);                 } catch (error) {                     console.log("Pairing code error:", error?.message \vert{}\vert{} error);                     pairingRequested = false;                 }             }, 6000);         }          if (connection === 'close') {             isConnectedMessageSent = false;             const statusCode = lastDisconnect?.error?.output?.statusCode;             console.log(`සම්බන්ධතාවය බිඳ වැටුණි (Reason: ${statusCode})`);
+                    console.log(`\n=================================\n🔑 PAIRING CODE: ${code}\n=================================\n`);
+                } catch (error) {
+                    console.log("Pairing code error:", error?.message || error);
+                    pairingRequested = false;
+                }
+            }, 6000);
+        }
+
+        if (connection === 'close') {
+            isConnectedMessageSent = false;
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            console.log(`සම්බන්ධතාවය බිඳ වැටුණි (Reason: ${statusCode})`);
 
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                 console.log("🔴 Session Expired. Restarting...");
@@ -91,7 +101,6 @@ async function connectToWhatsApp() {
 
             await sock.sendPresenceUpdate(currentSettings.botPresence);
 
-            // Connect Message - Exactly ONCE
             if (!isConnectedMessageSent) {
                 isConnectedMessageSent = true;
                 try {
@@ -114,7 +123,6 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Messages and Commands Handling
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
             if (type !== 'notify') return;
@@ -122,11 +130,9 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // Stop processing old messages sent BEFORE bot start
             const msgTimestamp = msg.messageTimestamp;
             if (msgTimestamp && msgTimestamp < botStartTime) return;
 
-            // Message Duplication Prevention
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
@@ -137,7 +143,6 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            // 👑 Owner Auto React
             if (isOwner && currentSettings.autoReactEnabled && currentSettings.ownerReactEmoji) {
                 try {
                     await sock.sendMessage(from, {
@@ -158,8 +163,7 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
-            // ----------------- INTERACTIVE SETTINGS RESPONSES ----------------- //
-
+            // Interactive Settings Logic
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '1') {
                 userState.set(from, 'AWAITING_ONLINE_CHOICE');
                 return await sock.sendMessage(from, { text: `⚙️ *ONLINE STATUS*\n\n1.1 - Online 🟢\n1.2 - Offline 🔴` }, { quoted: msg });
@@ -262,21 +266,20 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // ----------------- MAIN COMMANDS ----------------- //
-
+            // Commands Logic
             if (!textMessage.startsWith(currentSettings.currentPrefix)) return;
 
             const args = textMessage.slice(currentSettings.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .apply Command (Direct Apply GitHub Config)
+            // .apply Command (Fixed Syntax)
             if (command === 'apply') {
                 if (!isOwner) return;
                 const token = args[0];
                 const repo = args[1];
 
                 if (!token || !repo) {
-                    return await sock.sendMessage(from, { text: `⚠️ Usage: *${currentSettings.currentPrefix}apply <github_token> <repo_name>*</` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `⚠️ Usage: *${currentSettings.currentPrefix}apply <github_token> <repo_name>*` }, { quoted: msg });
                 }
 
                 currentSettings.githubToken = token;
