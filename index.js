@@ -68,9 +68,9 @@ const processedMessages = new Set();
 const userState = new Map();
 
 let pairingRequested = false;
-let isConnectedMessageSent = false;
 
-// Bot Start වූ තප්පරය (තප්පර 15ක Grace Period එකක් ලබා දී ඇත)
+// Connecting Spam Message එක නැවැත්වීමට Global Flag එකක් (Restart වෙනකම් එක් පාරක් පමණක් යවයි)
+let hasSentConnectedMsg = false;
 let botStartTime = Math.floor(Date.now() / 1000) - 15;
 
 async function connectToWhatsApp() {
@@ -122,7 +122,6 @@ async function connectToWhatsApp() {
             }
 
             if (connection === 'close') {
-                isConnectedMessageSent = false;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 console.log(`සම්බන්ධතාවය බිඳ වැටුණි (Reason: ${statusCode})`);
 
@@ -138,13 +137,11 @@ async function connectToWhatsApp() {
                 console.log(`✅ ${currentSettings.botName} සාර්ථකව සම්බන්ධ විය!`);
                 pairingRequested = false;
                 
-                // Reconnect වූ පසු botStartTime නැවත Update කර ගනී
-                botStartTime = Math.floor(Date.now() / 1000) - 10;
-
                 await sock.sendPresenceUpdate(currentSettings.botPresence).catch(() => {});
 
-                if (!isConnectedMessageSent) {
-                    isConnectedMessageSent = true;
+                // Spam වීම වැළැක්වීම: Process එක On වූ පසු එකම එක පාරක් පමණක් මැසේජ් එක යවයි
+                if (!hasSentConnectedMsg) {
+                    hasSentConnectedMsg = true;
                     try {
                         const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
                         const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
@@ -173,14 +170,14 @@ async function connectToWhatsApp() {
                 const msg = messages[0];
                 if (!msg || !msg.message) return;
 
-                // 1. Bot off වී තිබියදී ආ ඉතා පැරණි මැසේජ් වැළැක්වීම (ග්‍රේස් පීරියඩ් එකක් සමඟ)
+                // 1. Ignore messages before bot startup
                 const msgTimestamp = typeof msg.messageTimestamp === 'number' 
                     ? msg.messageTimestamp 
                     : msg.messageTimestamp?.low || 0;
 
                 if (msgTimestamp && msgTimestamp < botStartTime) return;
 
-                // 2. Double Message Processing Fix
+                // 2. Prevent Double Message Processing
                 const msgId = msg.key.id;
                 const msgKey = `${msg.key.remoteJid}_${msgId}`;
                 if (processedMessages.has(msgKey)) return;
