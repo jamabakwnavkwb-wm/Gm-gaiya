@@ -68,8 +68,10 @@ const processedMessages = new Set();
 const userState = new Map();
 
 let pairingRequested = false;
-let isConnectedMessageSent = false; 
-const botStartTime = Math.floor(Date.now() / 1000);
+let isConnectedMessageSent = false;
+
+// Bot Start වූ තප්පරය (තප්පර 15ක Grace Period එකක් ලබා දී ඇත)
+let botStartTime = Math.floor(Date.now() / 1000) - 15;
 
 async function connectToWhatsApp() {
     try {
@@ -135,6 +137,9 @@ async function connectToWhatsApp() {
             } else if (connection === 'open') {
                 console.log(`✅ ${currentSettings.botName} සාර්ථකව සම්බන්ධ විය!`);
                 pairingRequested = false;
+                
+                // Reconnect වූ පසු botStartTime නැවත Update කර ගනී
+                botStartTime = Math.floor(Date.now() / 1000) - 10;
 
                 await sock.sendPresenceUpdate(currentSettings.botPresence).catch(() => {});
 
@@ -168,16 +173,19 @@ async function connectToWhatsApp() {
                 const msg = messages[0];
                 if (!msg || !msg.message) return;
 
-                // 1. Ignore Old Messages (Before bot start)
-                const msgTimestamp = msg.messageTimestamp;
+                // 1. Bot off වී තිබියදී ආ ඉතා පැරණි මැසේජ් වැළැක්වීම (ග්‍රේස් පීරියඩ් එකක් සමඟ)
+                const msgTimestamp = typeof msg.messageTimestamp === 'number' 
+                    ? msg.messageTimestamp 
+                    : msg.messageTimestamp?.low || 0;
+
                 if (msgTimestamp && msgTimestamp < botStartTime) return;
 
-                // 2. Prevent Double Message Processing
+                // 2. Double Message Processing Fix
                 const msgId = msg.key.id;
                 const msgKey = `${msg.key.remoteJid}_${msgId}`;
                 if (processedMessages.has(msgKey)) return;
                 processedMessages.add(msgKey);
-                setTimeout(() => processedMessages.delete(msgKey), 120000);
+                setTimeout(() => processedMessages.delete(msgKey), 60000);
 
                 const from = msg.key.remoteJid;
                 const isGroup = from.endsWith('@g.us');
@@ -206,7 +214,7 @@ async function connectToWhatsApp() {
 
                 const currentState = userState.get(from);
 
-                // Settings Interactive Flow
+                // Settings Interactive Steps
                 if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '1') {
                     userState.set(from, 'AWAITING_BOTNAME_INPUT');
                     return await sock.sendMessage(from, { text: `🤖 *CHANGE BOT NAME*\n\nCurrent Name: *${currentSettings.botName}*\n\nPlease reply with the new Bot Name:` }, { quoted: msg });
