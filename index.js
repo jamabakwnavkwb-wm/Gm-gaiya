@@ -1,4 +1,12 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers, downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { 
+    default: makeWASocket, 
+    useMultiFileAuthState, 
+    DisconnectReason, 
+    fetchLatestBaileysVersion, 
+    makeCacheableSignalKeyStore, 
+    Browsers, 
+    downloadContentFromMessage 
+} = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { exec } = require('child_process');
 
@@ -10,7 +18,7 @@ let currentPrefix = '.';        // Default Prefix
 let workMode = 'public';        // Default Work Mode ('public', 'private', 'group', 'inbox')
 let autoReactEnabled = true;     // Default Auto React Status
 let ownerReactEmoji = '👑';      // Default Owner React Emoji
-const ownerNumber = process.env.PHONE_NUMBER || "94764802314"; // Owner WhatsApp අංකය
+const ownerNumber = process.env.PHONE_NUMBER || "94764802314"; // Owner WhatsApp Number
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -20,16 +28,20 @@ async function connectToWhatsApp() {
         version,
         auth: {
             creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }))
         },
         printQRInTerminal: false,
-        logger: pino({ level: 'silent' }),
-        browser: Browsers.ubuntu('Chrome'),
+        logger: pino({ level: 'fatal' }), // Log spam වැළැක්වීමට
+        browser: Browsers.macOS('Desktop'), // macOS browser එක යොදාගැනීමෙන් Prekey crash වළකී
         generateHighQualityLinkPreview: true,
-        syncFullHistory: false
+        syncFullHistory: false,
+        markOnlineOnConnect: true,
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 10000
     });
 
-    // Pairing Code එකක් අවශ්‍ය නම් ලබාගැනීමට
+    // Pairing Code Request - Multi-request වැළැක්වීමට Delay එකක් සහිතව
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
             try {
@@ -37,9 +49,9 @@ async function connectToWhatsApp() {
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log(`\n=================================\n🔑 PAIRING CODE: ${code}\n=================================\n`);
             } catch (error) {
-                console.log("Pairing code error:", error);
+                console.log("Pairing code ලබා ගැනීමට නොහැකි විය:", error?.message || error);
             }
-        }, 5000);
+        }, 8000);
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -49,12 +61,19 @@ async function connectToWhatsApp() {
         
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            const reason = lastDisconnect?.error?.output?.payload?.message || 'Unknown';
             
-            console.log(`සම්බන්ධතාවය බිඳ වැටුණි (Reason: ${statusCode}), නැවත සම්බන්ධ වෙමින්...`, shouldReconnect);
-            
-            if (shouldReconnect) {
+            console.log(`සම්බන්ධතාවය බිඳ වැටුණි (Reason Code: ${statusCode} | ${reason})`);
+
+            // 515 හෝ Restart Required වෙන විට Reconnect වීම
+            if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+                console.log("Prekey/Restart අවශ්‍යයි. තත්පර 5කින් නැවත සම්බන්ධ වේ...");
+                setTimeout(() => connectToWhatsApp(), 5000);
+            } else if (statusCode !== DisconnectReason.loggedOut) {
+                console.log("නැවත සම්බන්ධ වෙමින් පවතී...");
                 setTimeout(() => connectToWhatsApp(), 3000);
+            } else {
+                console.log("Session එක Logged Out වී ඇත. කරුණාකර re-pair කරන්න.");
             }
         } else if (connection === 'open') {
             console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
@@ -136,7 +155,6 @@ async function connectToWhatsApp() {
 
             // ----------------- INTERACTIVE SETTINGS RESPONSES ----------------- //
 
-            // 1. Online Status Choice
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '1') {
                 userState.set(from, 'AWAITING_ONLINE_CHOICE');
                 const onlineMenu = `⚙️ *ONLINE STATUS SETTINGS*\n\n` +
@@ -161,7 +179,6 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // 2. Prefix Choice
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '2') {
                 userState.set(from, 'AWAITING_PREFIX_CHOICE');
                 const prefixMenu = `⚙️ *CHANGE BOT PREFIX*\n\n` +
@@ -183,7 +200,6 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // 3. Work Mode Choice
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '3') {
                 userState.set(from, 'AWAITING_MODE_CHOICE');
                 const modeMenu = `⚙️ *WORK MODE SETTINGS*\n\n` +
@@ -216,7 +232,6 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // 4. Auto React Settings
             if (currentState === 'AWAITING_SETTING_CHOICE' && textMessage === '4') {
                 userState.set(from, 'AWAITING_REACT_SETTINGS_CHOICE');
                 const reactMenu = `⚙️ *OWNER AUTO REACT SETTINGS*\n\n` +
@@ -338,7 +353,6 @@ async function connectToWhatsApp() {
                     return await sock.sendMessage(from, { text: `⚠️ කරුණාකර View Once (One Time) ලෙස ලැබුණු Photo එකකට හෝ Video එකකට Reply කර මේ කමාන්ඩ් එක යවන්න!` }, { quoted: msg });
                 }
 
-                // Get View Once Message Content
                 const viewOnceMsg = quotedMsg.viewOnceMessageV2?.message || quotedMsg.viewOnceMessage?.message || quotedMsg;
                 const imageMsg = viewOnceMsg.imageMessage;
                 const videoMsg = viewOnceMsg.videoMessage;
