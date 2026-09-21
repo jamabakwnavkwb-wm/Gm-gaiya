@@ -10,7 +10,6 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
-const axios = require('axios');
 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
@@ -216,88 +215,6 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
-            // XHAMSTER Interactive Downloader Logic (FIXED API)
-            if (currentState && currentState.type === 'XHAMSTER_SEARCH') {
-                const selectedIndex = parseInt(textMessage) - 1;
-                if (!isNaN(selectedIndex) && currentState.results[selectedIndex]) {
-                    const video = currentState.results[selectedIndex];
-                    await sock.sendMessage(from, { text: `⏳ *Fetching video details and qualities...*` }, { quoted: msg });
-                    
-                    try {
-                        const targetUrl = video.link || video.url;
-                        const apiRes = await axios.get(`https://api.vreden.web.id/api/xhamsterdl?url=${encodeURIComponent(targetUrl)}`);
-                        
-                        let data = apiRes.data?.result || apiRes.data?.data;
-                        if (data) {
-                            let qualities = data.downloads || data.media || data.video || [];
-                            if (!Array.isArray(qualities) && typeof qualities === 'object') {
-                                qualities = Object.keys(qualities).map(k => ({ quality: k, url: qualities[k] }));
-                            }
-
-                            if (!qualities || qualities.length === 0) {
-                                if (data.url || data.link) {
-                                    qualities = [{ quality: 'HD Video', url: data.url || data.link }];
-                                }
-                            }
-
-                            userState.set(from, {
-                                type: 'XHAMSTER_QUALITY',
-                                title: data.title || video.title || 'xHamster Video',
-                                qualities: qualities
-                            });
-
-                            let qualityText = `🔞 *XHAMSTER VIDEO DETAILS*\n\n` +
-                                              `📌 *Title:* ${data.title || video.title}\n` +
-                                              `🔗 *Link:* ${targetUrl}\n\n` +
-                                              `*Select Download Quality:*\n`;
-
-                            qualities.forEach((q, idx) => {
-                                qualityText += `*${idx + 1}.* ${q.quality || q.resolution || 'Download'}\n`;
-                            });
-
-                            qualityText += `\n_Reply with option number to download file._`;
-
-                            const thumbUrl = data.thumb || data.image || video.image || video.thumb;
-                            if (thumbUrl) {
-                                await sock.sendMessage(from, { image: { url: thumbUrl }, caption: qualityText }, { quoted: msg });
-                            } else {
-                                await sock.sendMessage(from, { text: qualityText }, { quoted: msg });
-                            }
-                            return;
-                        } else {
-                            userState.delete(from);
-                            return await sock.sendMessage(from, { text: `❌ වීඩියෝවේ කොලටි තොරතුරු ලබාගැනීමට නොහැකි විය.` }, { quoted: msg });
-                        }
-                    } catch (e) {
-                        userState.delete(from);
-                        return await sock.sendMessage(from, { text: `❌ වීඩියෝ විස්තර සෙවීමේදී දෝෂයක් සිදු විය.` }, { quoted: msg });
-                    }
-                }
-            }
-
-            if (currentState && currentState.type === 'XHAMSTER_QUALITY') {
-                const selectedIndex = parseInt(textMessage) - 1;
-                if (!isNaN(selectedIndex) && currentState.qualities[selectedIndex]) {
-                    const selectedQuality = currentState.qualities[selectedIndex];
-                    const downloadUrl = selectedQuality.url || selectedQuality.link;
-
-                    await sock.sendMessage(from, { text: `⏳ *Downloading video file (${selectedQuality.quality || selectedQuality.resolution || 'Video'})... Please wait!*` }, { quoted: msg });
-
-                    try {
-                        userState.delete(from);
-                        await sock.sendMessage(from, {
-                            document: { url: downloadUrl },
-                            mimetype: 'video/mp4',
-                            fileName: `${currentState.title || 'xhamster_video'}.mp4`,
-                            caption: `✅ *Downloaded Successfully!*\n\n📌 *Title:* ${currentState.title}`
-                        }, { quoted: msg });
-                    } catch (err) {
-                        await sock.sendMessage(from, { text: `❌ වීඩියෝ ෆයිල් එක ඩවුන්ලෝඩ් කර යැවීමට නොහැකි විය.` }, { quoted: msg });
-                    }
-                    return;
-                }
-            }
-
             // Interactive Confirmations (Owner ට පමණි)
             if (isOwner && currentState && currentState.type === 'CONFIRM_TOKEN') {
                 if (textMessage === '1') {
@@ -407,88 +324,6 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .xhamster Command (FIXED & COMPLETE)
-            if (command === 'xhamster') {
-                const query = args.join(' ').trim();
-                if (!query) {
-                    return await sock.sendMessage(from, { text: `⚠️ කරුණාකර ලින්ක් එකක් හෝ සෙවුම් පදයක් ඇතුළත් කරන්න!\nඋදාහරණ: *${config.currentPrefix}xhamster <link / text>*` }, { quoted: msg });
-                }
-
-                await sock.sendMessage(from, { text: `🔍 *Searching xHamster... Please wait!*` }, { quoted: msg });
-
-                try {
-                    // Direct Link Handling
-                    if (query.startsWith('http://') || query.startsWith('https://')) {
-                        const apiRes = await axios.get(`https://api.vreden.web.id/api/xhamsterdl?url=${encodeURIComponent(query)}`);
-                        let data = apiRes.data?.result || apiRes.data?.data;
-
-                        if (data) {
-                            let qualities = data.downloads || data.media || data.video || [];
-                            if (!Array.isArray(qualities) && typeof qualities === 'object') {
-                                qualities = Object.keys(qualities).map(k => ({ quality: k, url: qualities[k] }));
-                            }
-
-                            if (!qualities || qualities.length === 0) {
-                                if (data.url || data.link) {
-                                    qualities = [{ quality: 'HD Video', url: data.url || data.link }];
-                                }
-                            }
-
-                            userState.set(from, {
-                                type: 'XHAMSTER_QUALITY',
-                                title: data.title || 'xHamster Video',
-                                qualities: qualities
-                            });
-
-                            let qualityText = `🔞 *XHAMSTER VIDEO DETAILS*\n\n` +
-                                              `📌 *Title:* ${data.title || 'xHamster Video'}\n` +
-                                              `🔗 *Link:* ${query}\n\n` +
-                                              `*Select Download Quality:*\n`;
-
-                            qualities.forEach((q, idx) => {
-                                qualityText += `*${idx + 1}.* ${q.quality || q.resolution || 'Download'}\n`;
-                            });
-
-                            qualityText += `\n_Reply with option number to download file._`;
-
-                            const thumbUrl = data.thumb || data.image;
-                            if (thumbUrl) {
-                                await sock.sendMessage(from, { image: { url: thumbUrl }, caption: qualityText }, { quoted: msg });
-                            } else {
-                                await sock.sendMessage(from, { text: qualityText }, { quoted: msg });
-                            }
-                        } else {
-                            await sock.sendMessage(from, { text: `❌ ලින්ක් එකට අදාළ වීඩියෝව සොයාගැනීමට නොහැකි විය.` }, { quoted: msg });
-                        }
-                    } 
-                    // Search Query Handling
-                    else {
-                        const apiRes = await axios.get(`https://api.vreden.web.id/api/xhamstersearch?query=${encodeURIComponent(query)}`);
-                        let searchResults = apiRes.data?.result || apiRes.data?.data || [];
-
-                        if (searchResults && searchResults.length > 0) {
-                            searchResults = searchResults.slice(0, 10);
-                            userState.set(from, {
-                                type: 'XHAMSTER_SEARCH',
-                                results: searchResults
-                            });
-
-                            let resultText = `🔞 *XHAMSTER SEARCH RESULTS*\n\n`;
-                            searchResults.forEach((item, index) => {
-                                resultText += `*${index + 1}.* ${item.title || item.name}\n`;
-                            });
-                            resultText += `\n_Reply with option number (1-${searchResults.length}) to view details and download._`;
-
-                            await sock.sendMessage(from, { text: resultText }, { quoted: msg });
-                        } else {
-                            await sock.sendMessage(from, { text: `❌ අදාළ සෙවුමට කිසිදු වීඩියෝවක් හමු නොවීය.` }, { quoted: msg });
-                        }
-                    }
-                } catch (e) {
-                    await sock.sendMessage(from, { text: `❌ සෙවීමේදී දෝෂයක් සිදු විය. නැවත උත්සාහ කරන්න.` }, { quoted: msg });
-                }
-            }
-
             // .bot Command (Owner Only)
             if (command === 'bot') {
                 if (!isOwner) return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
@@ -581,7 +416,6 @@ async function connectToWhatsApp() {
                                  `│ 🏓 *${config.currentPrefix}ping* - Speed Test\n` +
                                  `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings (Owner Only)\n` +
                                  `│ 🤖 *${config.currentPrefix}bot name <name>* - Change Bot Name\n` +
-                                 `│ 🔞 *${config.currentPrefix}xhamster <link/text>* - Download xHamster Video\n` +
                                  `│ 🔑 *${config.currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
                                  `│ 🔄 *${config.currentPrefix}update* - Git Update\n` +
                                  `│ 👁️ *${config.currentPrefix}vv2* - View Once Downloader\n` +
