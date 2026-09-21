@@ -13,7 +13,8 @@ const { exec } = require('child_process');
 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
-const startTime = Math.floor(Date.now() / 1000); // Bot Start වූ වෙලාව
+const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
+const startTime = Math.floor(Date.now() / 1000);
 
 // InMemoryStore Safe Handling
 let store;
@@ -33,7 +34,7 @@ try {
 let config = {
     botPresence: 'available',
     currentPrefix: '!',
-    workMode: 'private', // 'private', 'inbox', 'group', 'public'
+    workMode: 'private', 
     autoReactEnabled: true,
     ownerReactEmoji: '👑',
     viewOnceDownload: true,
@@ -64,9 +65,10 @@ loadSettings();
 
 const processedMessages = new Set();
 const userState = new Map();
+let isPairingRequested = false; // Double Pairing Code එන එක නැවැත්වීමට Flag එකක්
 
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
@@ -92,16 +94,19 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    if (!sock.authState.creds.registered) {
+    // අලුත්ම Pairing Code එක ලබාගැනීම (Double Code වීම නැවැත්වීම)
+    if (!sock.authState.creds.registered && !isPairingRequested) {
+        isPairingRequested = true;
         setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(PHONE_NUMBER);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
-                console.log(`\n=================================\n🔑 PAIRING CODE: ${code}\n=================================\n`);
+                console.log(`\n=================================\n🔑 YOUR NEW PAIRING CODE: ${code}\n=================================\n`);
             } catch (error) {
                 console.log("Pairing code error:", error?.message || error);
+                isPairingRequested = false;
             }
-        }, 8000);
+        }, 6000);
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -110,14 +115,24 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect } = update;
         
         if (connection === 'close') {
+            isPairingRequested = false;
             const statusCode = lastDisconnect?.error?.output?.statusCode;
-            if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+            
+            // Session අවුල් උනොත් පරණ Folder එක Clear කර අලුතින්ම Connect වීම
+            if (statusCode === DisconnectReason.loggedOut) {
+                console.log("Session Logged Out. Clearing auth folder...");
+                if (fs.existsSync(AUTH_DIR)) {
+                    fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                }
+                setTimeout(() => connectToWhatsApp(), 3000);
+            } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
                 setTimeout(() => connectToWhatsApp(), 5000);
-            } else if (statusCode !== DisconnectReason.loggedOut) {
+            } else {
                 setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
             console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
+            isPairingRequested = false;
 
             await sock.sendPresenceUpdate(config.botPresence);
 
@@ -150,7 +165,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // 1. බොට් ඔෆ් වී නැවත කනෙක්ට් වූ පසු පැරණි කමාන්ඩ් ක්‍රියාත්මක වීම වැළැක්වීම
+            // පරණ Messages Reject කිරීම
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             if (msgTime < startTime) return; 
 
@@ -184,18 +199,11 @@ async function connectToWhatsApp() {
 
             if (!textMessage) return;
 
-            // 2. Mode Settings පාලනය
+            // Work Mode Controller
             if (!isOwner) {
-                if (config.workMode === 'private') {
-                    return; // Private Mode එකේදී Owner හැර වෙනත් කිසිවෙකුට වැඩ නොකරයි
-                } 
-                else if (config.workMode === 'inbox' && isGroup) {
-                    return; // Inbox Mode එකේදී Group වල වැඩ නොකරයි
-                } 
-                else if (config.workMode === 'group' && !isGroup) {
-                    return; // Group Mode එකේදී Inbox වල වැඩ නොකරයි
-                }
-                // public Mode එකේදී Inbox & Group දෙකටම වැඩ කරයි
+                if (config.workMode === 'private') return; 
+                if (config.workMode === 'inbox' && isGroup) return; 
+                if (config.workMode === 'group' && !isGroup) return; 
             }
 
             const currentState = userState.get(from);
@@ -242,7 +250,7 @@ async function connectToWhatsApp() {
                 else if (textMessage === '3') {
                     userState.set(from, 'AWAITING_MODE_CHOICE');
                     return await sock.sendMessage(from, { 
-                        text: `⚙️ *WORK MODE SETTINGS*\n\nReply with option:\n*3.1* - Private Mode 🔒 (Owner Only)\n*3.2* - Group Mode 👥 (Groups Only)\n*3.3* - Inbox Mode 📥 (Inbox Only)\n*3.4* - Public Mode 🌐 (Everyone Everywhere)` 
+                        text: `⚙️ *WORK MODE SETTINGS*\n\nReply with option:\n*3.1* - Private Mode 🔒\n*3.2* - Group Mode 👥\n*3.3* - Inbox Mode 📥\n*3.4* - Public Mode 🌐` 
                     }, { quoted: msg });
                 }
                 else if (textMessage === '4') {
@@ -343,7 +351,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // 3. Setting Command (Owner ට පමණි)
+            // Setting Command (Owner ට පමණි)
             if (command === 'setting' || command === 'settings') {
                 if (!isOwner) {
                     return await sock.sendMessage(from, { text: `⚠️ Settings වෙනස් කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
