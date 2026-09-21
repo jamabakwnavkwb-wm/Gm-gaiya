@@ -65,7 +65,10 @@ loadSettings();
 
 const processedMessages = new Set();
 const userState = new Map();
-let isPairingRequested = false; // Double Pairing Code එන එක නැවැත්වීමට Flag එකක්
+
+// Pairing Code එක එකවරක් පමණක් Request වීමට Guard Flags
+let isPairingRequested = false;
+let pairingTimeout = null;
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -76,7 +79,7 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'fatal' }),
-        browser: ['Mac OS', 'Desktop', '1.0.0'],
+        browser: ['Ubuntu', 'Chrome', '20.0.04'],
         generateHighQualityLinkPreview: true,
         syncFullHistory: false,
         markOnlineOnConnect: true,
@@ -94,10 +97,12 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // අලුත්ම Pairing Code එක ලබාගැනීම (Double Code වීම නැවැත්වීම)
+    // Single Pairing Code System
     if (!sock.authState.creds.registered && !isPairingRequested) {
         isPairingRequested = true;
-        setTimeout(async () => {
+        if (pairingTimeout) clearTimeout(pairingTimeout);
+
+        pairingTimeout = setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(PHONE_NUMBER);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
@@ -106,7 +111,7 @@ async function connectToWhatsApp() {
                 console.log("Pairing code error:", error?.message || error);
                 isPairingRequested = false;
             }
-        }, 6000);
+        }, 10000); // 10s Delay connection stable වන තෙක්
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -115,20 +120,23 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect } = update;
         
         if (connection === 'close') {
-            isPairingRequested = false;
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             
-            // Session අවුල් උනොත් පරණ Folder එක Clear කර අලුතින්ම Connect වීම
             if (statusCode === DisconnectReason.loggedOut) {
                 console.log("Session Logged Out. Clearing auth folder...");
+                isPairingRequested = false;
                 if (fs.existsSync(AUTH_DIR)) {
                     fs.rmSync(AUTH_DIR, { recursive: true, force: true });
                 }
-                setTimeout(() => connectToWhatsApp(), 3000);
+                setTimeout(() => connectToWhatsApp(), 5000);
             } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
                 setTimeout(() => connectToWhatsApp(), 5000);
             } else {
-                setTimeout(() => connectToWhatsApp(), 3000);
+                // Connection Closed වූ විට නැවත Pairing Request කිරීමට ඉඩ හැරීම
+                setTimeout(() => {
+                    isPairingRequested = false;
+                    connectToWhatsApp();
+                }, 5000);
             }
         } else if (connection === 'open') {
             console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
@@ -165,7 +173,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // පරණ Messages Reject කිරීම
+            // බොට් ඔෆ් වී නැවත කනෙක්ට් වූ පසු පැරණි කමාන්ඩ් ක්‍රියාත්මක වීම වැළැක්වීම
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             if (msgTime < startTime) return; 
 
@@ -199,7 +207,7 @@ async function connectToWhatsApp() {
 
             if (!textMessage) return;
 
-            // Work Mode Controller
+            // Mode Settings පාලනය
             if (!isOwner) {
                 if (config.workMode === 'private') return; 
                 if (config.workMode === 'inbox' && isGroup) return; 
