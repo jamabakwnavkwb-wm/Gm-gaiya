@@ -32,6 +32,7 @@ try {
 
 // Default Configurations
 let config = {
+    botName: 'GM GAIYA - MD',
     botPresence: 'available',
     currentPrefix: '!',
     workMode: 'private', 
@@ -66,7 +67,7 @@ loadSettings();
 const processedMessages = new Set();
 const userState = new Map();
 
-// Pairing Code එක එකවරක් පමණක් Request වීමට Guard Flags
+// Pairing Code Request Flag
 let isPairingRequested = false;
 let pairingTimeout = null;
 
@@ -78,7 +79,7 @@ async function connectToWhatsApp() {
         version,
         auth: state,
         printQRInTerminal: false,
-        logger: pino({ level: 'fatal' }),
+        logger: pino({ level: 'silent' }),
         browser: ['Ubuntu', 'Chrome', '20.0.04'],
         generateHighQualityLinkPreview: true,
         syncFullHistory: false,
@@ -91,7 +92,7 @@ async function connectToWhatsApp() {
                 const msg = await store.loadMessage(key.remoteJid, key.id);
                 return msg?.message || undefined;
             }
-            return undefined; // මෙතැන තිබූ 'Hello' කොටස ඉවත් කර ඇත
+            return undefined;
         }
     });
 
@@ -111,7 +112,7 @@ async function connectToWhatsApp() {
                 console.log("Pairing code error:", error?.message || error);
                 isPairingRequested = false;
             }
-        }, 10000); // 10s Delay connection stable වන තෙක්
+        }, 10000);
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -138,7 +139,7 @@ async function connectToWhatsApp() {
                 }, 5000);
             }
         } else if (connection === 'open') {
-            console.log('✅ GM GAIYA - MD සාර්ථකව සම්බන්ධ විය!');
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය!`);
             isPairingRequested = false;
 
             await sock.sendPresenceUpdate(config.botPresence);
@@ -148,7 +149,7 @@ async function connectToWhatsApp() {
                 const tokenStatus = config.githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴";
                 
                 const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
-                                         `🤖 *Bot Name:* GM GAIYA - MD\n` +
+                                         `🤖 *Bot Name:* ${config.botName}\n` +
                                          `⚙️ *Work Mode:* ${config.workMode.toUpperCase()}\n` +
                                          `• *Status:* Active 🟢\n` +
                                          `• *Prefix:* [ ${config.currentPrefix} ]\n` +
@@ -156,7 +157,7 @@ async function connectToWhatsApp() {
                                          `• *View Once Download:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
                                          `• *GitHub Token:* ${tokenStatus}\n` +
                                          `• *GitHub Repo:* ${config.githubRepo}\n\n` +
-                                         `_GM GAIYA - MD is now ready to use!_`;
+                                         `_${config.botName} is now ready to use!_`;
 
                 await sock.sendMessage(botJid, { text: connectedMessage });
             } catch (err) {
@@ -323,6 +324,24 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
+            // .bot Command (Owner Only) - New Command Added
+            if (command === 'bot') {
+                if (!isOwner) return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
+
+                const subCommand = args.shift()?.toLowerCase();
+                if (subCommand === 'name') {
+                    const newName = args.join(' ').trim();
+                    if (!newName) {
+                        return await sock.sendMessage(from, { text: `⚠️ කරුණාකර නව බොට්ගේ නම ඇතුළත් කරන්න!\nඋදාහරණ: *${config.currentPrefix}bot name MyBot-MD*` }, { quoted: msg });
+                    }
+                    config.botName = newName;
+                    saveSettings();
+                    return await sock.sendMessage(from, { text: `✅ *Bot Name successfully updated to:* [ *${config.botName}* ] 🟢` }, { quoted: msg });
+                } else {
+                    return await sock.sendMessage(from, { text: `⚠️ කරුණාකර නිවැරදි කමාන්ඩ් එක යවන්න: *${config.currentPrefix}bot name <New Name>*` }, { quoted: msg });
+                }
+            }
+
             // .apply Command (Owner Only)
             if (command === 'apply') {
                 if (!isOwner) return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
@@ -365,7 +384,7 @@ async function connectToWhatsApp() {
 
                 userState.set(from, 'AWAITING_SETTING_CHOICE');
 
-                const settingsText = `⚙️ *GM GAIYA - MD SETTINGS MENU*\n\n` +
+                const settingsText = `⚙️ *${config.botName} SETTINGS MENU*\n\n` +
                                      `Reply with option number:\n\n` +
                                      `*1* - Online Status Settings\n` +
                                      `*2* - Change Bot Prefix\n` +
@@ -373,6 +392,7 @@ async function connectToWhatsApp() {
                                      `*4* - Auto React Settings\n` +
                                      `*5* - Toggle View Once Downloader\n\n` +
                                      `📌 *CURRENT CONFIGURATION*\n` +
+                                     `• *Bot Name:* ${config.botName}\n` +
                                      `• *Prefix:* [ ${config.currentPrefix} ]\n` +
                                      `• *Work Mode:* ${config.workMode.toUpperCase()}\n` +
                                      `• *Online Status:* ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
@@ -386,8 +406,8 @@ async function connectToWhatsApp() {
 
             // Menu Command
             else if (command === 'menu' || command === 'help') {
-                const menuText = `✨ *GM GAIYA - MD MAIN MENU* ✨\n\n` +
-                                 `🤖 *Bot Name:* GM GAIYA - MD\n` +
+                const menuText = `✨ *${config.botName} MAIN MENU* ✨\n\n` +
+                                 `🤖 *Bot Name:* ${config.botName}\n` +
                                  `⚙️ *Mode:* ${config.workMode.toUpperCase()}\n` +
                                  `📌 *Prefix:* [ ${config.currentPrefix} ]\n\n` +
                                  `*AVAILABLE COMMANDS:*\n` +
@@ -395,6 +415,7 @@ async function connectToWhatsApp() {
                                  `│ 📜 *${config.currentPrefix}menu* - Display Menu\n` +
                                  `│ 🏓 *${config.currentPrefix}ping* - Speed Test\n` +
                                  `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings (Owner Only)\n` +
+                                 `│ 🤖 *${config.currentPrefix}bot name <name>* - Change Bot Name\n` +
                                  `│ 🔑 *${config.currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
                                  `│ 🔄 *${config.currentPrefix}update* - Git Update\n` +
                                  `│ 👁️ *${config.currentPrefix}vv2* - View Once Downloader\n` +
