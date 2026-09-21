@@ -91,7 +91,7 @@ async function connectToWhatsApp() {
                 const msg = await store.loadMessage(key.remoteJid, key.id);
                 return msg?.message || undefined;
             }
-            return { conversation: 'Hello' };
+            return undefined; // මෙතැන තිබූ 'Hello' කොටස ඉවත් කර ඇත
         }
     });
 
@@ -132,7 +132,6 @@ async function connectToWhatsApp() {
             } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
                 setTimeout(() => connectToWhatsApp(), 5000);
             } else {
-                // Connection Closed වූ විට නැවත Pairing Request කිරීමට ඉඩ හැරීම
                 setTimeout(() => {
                     isPairingRequested = false;
                     connectToWhatsApp();
@@ -173,7 +172,6 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // බොට් ඔෆ් වී නැවත කනෙක්ට් වූ පසු පැරණි කමාන්ඩ් ක්‍රියාත්මක වීම වැළැක්වීම
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             if (msgTime < startTime) return; 
 
