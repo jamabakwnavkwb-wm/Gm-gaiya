@@ -10,6 +10,7 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
+const axios = require('axios');
 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
@@ -215,6 +216,76 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
+            // XHAMSTER Interactive Downloader Logic
+            if (currentState && currentState.type === 'XHAMSTER_SEARCH') {
+                const selectedIndex = parseInt(textMessage) - 1;
+                if (!isNaN(selectedIndex) && currentState.results[selectedIndex]) {
+                    const video = currentState.results[selectedIndex];
+                    await sock.sendMessage(from, { text: `⏳ *Fetching video details and qualities...*` }, { quoted: msg });
+                    
+                    try {
+                        const res = await axios.get(`https://api.agatz.xyz/api/xhamster?url=${encodeURIComponent(video.link)}`);
+                        if (res.data.status === 200 && res.data.data) {
+                            const data = res.data.data;
+                            const qualities = data.downloads || data.quality || [];
+                            
+                            userState.set(from, {
+                                type: 'XHAMSTER_QUALITY',
+                                title: data.title || video.title,
+                                qualities: qualities
+                            });
+
+                            let qualityText = `🔞 *XHAMSTER VIDEO DETAILS*\n\n` +
+                                              `📌 *Title:* ${data.title || video.title}\n` +
+                                              `🔗 *Link:* ${video.link}\n\n` +
+                                              `*Select Download Quality:*\n`;
+
+                            qualities.forEach((q, idx) => {
+                                qualityText += `*${idx + 1}.* ${q.quality || q.resolution || 'Download'}\n`;
+                            });
+
+                            qualityText += `\n_Reply with option number to download file._`;
+
+                            if (data.thumb || video.image) {
+                                await sock.sendMessage(from, { image: { url: data.thumb || video.image }, caption: qualityText }, { quoted: msg });
+                            } else {
+                                await sock.sendMessage(from, { text: qualityText }, { quoted: msg });
+                            }
+                            return;
+                        } else {
+                            userState.delete(from);
+                            return await sock.sendMessage(from, { text: `❌ වීඩියෝවේ කොලටි තොරතුරු ලබාගැනීමට නොහැකි විය.` }, { quoted: msg });
+                        }
+                    } catch (e) {
+                        userState.delete(from);
+                        return await sock.sendMessage(from, { text: `❌ වීඩියෝ විස්තර සෙවීමේදී දෝෂයක් සිදු විය.` }, { quoted: msg });
+                    }
+                }
+            }
+
+            if (currentState && currentState.type === 'XHAMSTER_QUALITY') {
+                const selectedIndex = parseInt(textMessage) - 1;
+                if (!isNaN(selectedIndex) && currentState.qualities[selectedIndex]) {
+                    const selectedQuality = currentState.qualities[selectedIndex];
+                    const downloadUrl = selectedQuality.url || selectedQuality.link;
+
+                    await sock.sendMessage(from, { text: `⏳ *Downloading video file (${selectedQuality.quality || selectedQuality.resolution || 'Video'})... Please wait!*` }, { quoted: msg });
+
+                    try {
+                        userState.delete(from);
+                        await sock.sendMessage(from, {
+                            document: { url: downloadUrl },
+                            mimetype: 'video/mp4',
+                            fileName: `${currentState.title || 'xhamster_video'}.mp4`,
+                            caption: `✅ *Downloaded Successfully!*\n\n📌 *Title:* ${currentState.title}`
+                        }, { quoted: msg });
+                    } catch (err) {
+                        await sock.sendMessage(from, { text: `❌ වීඩියෝ ഫයිල් එක ඩවුන්ලෝඩ් කර යැවීමට නොහැකි විය.` }, { quoted: msg });
+                    }
+                    return;
+                }
+            }
+
             // Interactive Confirmations (Owner ට පමණි)
             if (isOwner && currentState && currentState.type === 'CONFIRM_TOKEN') {
                 if (textMessage === '1') {
@@ -324,7 +395,73 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .bot Command (Owner Only) - New Command Added
+            // .xhamster Command - New Added Command
+            if (command === 'xhamster') {
+                const query = args.join(' ').trim();
+                if (!query) {
+                    return await sock.sendMessage(from, { text: `⚠️ කරුණාකර ලින්ක් එකක් හෝ සෙවුම් පදයක් ඇතුළත් කරන්න!\nඋදාහරණ: *${config.currentPrefix}xhamster <link / text>*` }, { quoted: msg });
+                }
+
+                await sock.sendMessage(from, { text: `🔍 *Searching xHamster... Please wait!*` }, { quoted: msg });
+
+                try {
+                    if (query.startsWith('http://') || query.startsWith('https://')) {
+                        const res = await axios.get(`https://api.agatz.xyz/api/xhamster?url=${encodeURIComponent(query)}`);
+                        if (res.data.status === 200 && res.data.data) {
+                            const data = res.data.data;
+                            const qualities = data.downloads || data.quality || [];
+
+                            userState.set(from, {
+                                type: 'XHAMSTER_QUALITY',
+                                title: data.title || 'xHamster Video',
+                                qualities: qualities
+                            });
+
+                            let qualityText = `🔞 *XHAMSTER VIDEO DETAILS*\n\n` +
+                                              `📌 *Title:* ${data.title || 'xHamster Video'}\n` +
+                                              `🔗 *Link:* ${query}\n\n` +
+                                              `*Select Download Quality:*\n`;
+
+                            qualities.forEach((q, idx) => {
+                                qualityText += `*${idx + 1}.* ${q.quality || q.resolution || 'Download'}\n`;
+                            });
+
+                            qualityText += `\n_Reply with option number to download file._`;
+
+                            if (data.thumb) {
+                                await sock.sendMessage(from, { image: { url: data.thumb }, caption: qualityText }, { quoted: msg });
+                            } else {
+                                await sock.sendMessage(from, { text: qualityText }, { quoted: msg });
+                            }
+                        } else {
+                            await sock.sendMessage(from, { text: `❌ ලින්ක් එකට අදාළ වීඩියෝව සොයාගැනීමට නොහැකි විය.` }, { quoted: msg });
+                        }
+                    } else {
+                        const res = await axios.get(`https://api.agatz.xyz/api/xhamstersearch?q=${encodeURIComponent(query)}`);
+                        if (res.data.status === 200 && res.data.data && res.data.data.length > 0) {
+                            const searchResults = res.data.data.slice(0, 10);
+                            userState.set(from, {
+                                type: 'XHAMSTER_SEARCH',
+                                results: searchResults
+                            });
+
+                            let resultText = `🔞 *XHAMSTER SEARCH RESULTS*\n\n`;
+                            searchResults.forEach((item, index) => {
+                                resultText += `*${index + 1}.* ${item.title}\n`;
+                            });
+                            resultText += `\n_Reply with option number (1-${searchResults.length}) to view details and download._`;
+
+                            await sock.sendMessage(from, { text: resultText }, { quoted: msg });
+                        } else {
+                            await sock.sendMessage(from, { text: `❌ අදාළ සෙවුමට කිසිදු වීඩියෝවක් හමු නොවීය.` }, { quoted: msg });
+                        }
+                    }
+                } catch (e) {
+                    await sock.sendMessage(from, { text: `❌ සෙවීමේදී දෝෂයක් සිදු විය. නැවත උත්සාහ කරන්න.` }, { quoted: msg });
+                }
+            }
+
+            // .bot Command (Owner Only)
             if (command === 'bot') {
                 if (!isOwner) return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
 
@@ -416,6 +553,7 @@ async function connectToWhatsApp() {
                                  `│ 🏓 *${config.currentPrefix}ping* - Speed Test\n` +
                                  `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings (Owner Only)\n` +
                                  `│ 🤖 *${config.currentPrefix}bot name <name>* - Change Bot Name\n` +
+                                 `│ 🔞 *${config.currentPrefix}xhamster <link/text>* - Download xHamster Video\n` +
                                  `│ 🔑 *${config.currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
                                  `│ 🔄 *${config.currentPrefix}update* - Git Update\n` +
                                  `│ 👁️ *${config.currentPrefix}vv2* - View Once Downloader\n` +
