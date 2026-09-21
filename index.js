@@ -373,7 +373,7 @@ async function connectToWhatsApp() {
                     if (!isOwner) return;
                     const newMode = args[0]?.toLowerCase();
                     if (!newMode || !['private', 'group', 'inbox', 'public'].includes(newMode)) {
-                        return await sock.sendMessage(from, { text: `⚠️ *Usage:* ${currentSettings.currentPrefix}mode <private | group | inbox | public>\n\n*Current Mode:* ${currentSettings.workMode.toUpperCase()}` }, { quoted: msg });
+                        return await sock.sendMessage(from, { text: `⚠️ *Usage:* ${currentSettings.currentPrefix}mode <private \vert{} group \vert{} inbox \vert{} public>\n\n*Current Mode:*${currentSettings.workMode.toUpperCase()}` }, { quoted: msg });
                     }
                     
                     currentSettings.workMode = newMode;
@@ -432,6 +432,65 @@ async function connectToWhatsApp() {
                     });
                 }
 
+                // .xhamster Downloader Command
+                else if (command === 'xhamster' || command === 'xh') {
+                    const videoUrl = args[0];
+                    if (!videoUrl || (!videoUrl.includes('xhamster.com') && !videoUrl.includes('xhamster.desi'))) {
+                        return await sock.sendMessage(from, { 
+                            text: `⚠️ *අවලංගු හෝ හිස් Link එකකි!*\n\nභාවිත කරන ආකාරය:\n\`${currentSettings.currentPrefix}xhamster <xhamster_video_url>\`` 
+                        }, { quoted: msg });
+                    }
+
+                    await sock.sendMessage(from, { text: `⏳ *වීඩියෝව Process වෙමින් පවතී... මඳක් රැඳී සිටින්න.*` }, { quoted: msg });
+
+                    const tempFileName = `temp_xh_${Date.now()}.mp4`;
+                    const outputPath = path.join(__dirname, tempFileName);
+
+                    // Max 720p resolution limit to prevent WhatsApp file size rejection
+                    const execCommand = `yt-dlp -f "bestvideo[height<=720]+bestaudio/best[height<=720]" --no-playlist -o "${outputPath}" "${videoUrl}"`;
+
+                    exec(execCommand, async (error, stdout, stderr) => {
+                        if (error) {
+                            console.error("XHamster Download Error:", error.message);
+                            return await sock.sendMessage(from, { 
+                                text: `❌ *වීඩියෝව ඩවුන්ලෝඩ් කිරීම අසාර්ථක විය!*\n\nහේතුව: Link එක වැරදි විය හැක, නැතහොත් වීඩියෝවේ ෆයිල් සයිස් එක WhatsApp සීමාවට වඩා වැඩිය.` 
+                            }, { quoted: msg });
+                        }
+
+                        try {
+                            if (fs.existsSync(outputPath)) {
+                                const stats = fs.statSync(outputPath);
+                                const fileSizeInMB = stats.size / (1024 * 1024);
+
+                                // Check WhatsApp 100MB File Size Limit
+                                if (fileSizeInMB > 100) {
+                                    fs.unlinkSync(outputPath);
+                                    return await sock.sendMessage(from, { 
+                                        text: `⚠️ *වීඩියෝවේ ෆයිල් සයිස් එක ${fileSizeInMB.toFixed(1)}MB වේ.* WhatsApp හරහා යැවිය හැක්කේ maximum 100MB වීඩියෝ පමණි.` 
+                                    }, { quoted: msg });
+                                }
+
+                                const videoBuffer = fs.readFileSync(outputPath);
+
+                                await sock.sendMessage(from, { 
+                                    video: videoBuffer, 
+                                    caption: `🎬 *XHamster Video Downloader*\n\n_Powered by ${currentSettings.botName}_`,
+                                    mimetype: 'video/mp4'
+                                }, { quoted: msg });
+
+                                // Clean up temp file
+                                fs.unlinkSync(outputPath);
+                            } else {
+                                await sock.sendMessage(from, { text: `❌ වීඩියෝ ഫයිල් එක සොයාගැනීමට නොහැකි විය.` }, { quoted: msg });
+                            }
+                        } catch (err) {
+                            console.error("Send Error:", err);
+                            await sock.sendMessage(from, { text: `❌ වීඩියෝව යැවීමේදී දෝෂයක් සිදු විය.` }, { quoted: msg });
+                            if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+                        }
+                    });
+                }
+
                 // Menu Command
                 else if (command === 'menu' || command === 'help') {
                     const menuText = `✨ *${currentSettings.botName} MAIN MENU* ✨\n\n` +
@@ -449,6 +508,7 @@ async function connectToWhatsApp() {
                                      `│ ⚙️ *${currentSettings.currentPrefix}setting* - Bot Settings\n` +
                                      `│ 🌐 *${currentSettings.currentPrefix}mode* - Change Work Mode\n` +
                                      `│ 🤖 *${currentSettings.currentPrefix}botname* - Change Bot Name\n` +
+                                     `│ 🔞 *${currentSettings.currentPrefix}xhamster* - Download Video\n` +
                                      `│ 👁️ *${currentSettings.currentPrefix}vv2* - View Once Downloader\n` +
                                      `│ 🔑 *${currentSettings.currentPrefix}apply* - Connect GitHub\n` +
                                      `│ 🔄 *${currentSettings.currentPrefix}update* - Pull Updates\n` +
