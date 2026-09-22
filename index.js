@@ -37,7 +37,7 @@ let config = {
     currentPrefix: '!',
     workMode: 'private', 
     
-    // Owner Auto React Settings (කලින් තිබූ කෝඩ් එක)
+    // Owner Auto React Settings
     ownerAutoReactEnabled: true,
     ownerReactEmoji: '👑',
 
@@ -175,7 +175,7 @@ async function connectToWhatsApp() {
 
             await sock.sendPresenceUpdate(config.botPresence);
 
-            // ==================== OWNER AUTO REACT (කලින් තිබූ කෝඩ් එක) ====================
+            // ==================== OWNER AUTO REACT ====================
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
                 try {
                     await sock.sendMessage(from, { 
@@ -426,38 +426,6 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // .dp Command (Profile Picture Downloader to Owner Inbox)
-            if (command === 'dp') {
-                try {
-                    let targetJid = from;
-                    const quotedMsg = msg.message.extendedTextMessage?.contextInfo?.participant;
-                    const mentionedJid = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-
-                    if (quotedMsg) {
-                        targetJid = quotedMsg;
-                    } else if (mentionedJid) {
-                        targetJid = mentionedJid;
-                    }
-
-                    const ppUrl = await sock.profilePictureUrl(targetJid, 'image').catch(() => null);
-                    if (!ppUrl) {
-                        return await sock.sendMessage(from, { text: `❌ අදාළ ගිණුම/ගෲප් එක සඳහා Profile Picture එකක් නොමැත හෝ එය ලබා ගත නොහැක.` }, { quoted: msg });
-                    }
-
-                    const botOwnerJid = PHONE_NUMBER.includes('@s.whatsapp.net') ? PHONE_NUMBER : `${PHONE_NUMBER}@s.whatsapp.net`;
-                    
-                    await sock.sendMessage(botOwnerJid, { 
-                        image: { url: ppUrl }, 
-                        caption: `🖼️ *PROFILE PICTURE FETCHED*\n👤 *Target:* @${targetJid.split('@')[0]}`,
-                        mentions: [targetJid]
-                    });
-
-                    return await sock.sendMessage(from, { text: `✅ Profile Picture එක සාර්ථකව Bot ගේ Inbox එකට යවන ලදී!` }, { quoted: msg });
-                } catch (e) {
-                    return await sock.sendMessage(from, { text: `❌ Profile Picture එක ලබා ගැනීමේදී දෝෂයක් සිදු විය.` }, { quoted: msg });
-                }
-            }
-
             // .bot Command (Owner Only)
             if (command === 'bot') {
                 if (!isOwner) return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
@@ -553,7 +521,6 @@ async function connectToWhatsApp() {
                                  `│ 📜 *${config.currentPrefix}menu* - Display Menu\n` +
                                  `│ 🏓 *${config.currentPrefix}ping* - Speed Test\n` +
                                  `│ 📋 *${config.currentPrefix}info* - Get Group Description\n` +
-                                 `│ 🖼️ *${config.currentPrefix}dp* - Download Profile Picture to Inbox\n` +
                                  `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings (Owner Only)\n` +
                                  `│ 🤖 *${config.currentPrefix}bot name <name>* - Change Bot Name\n` +
                                  `│ 🔑 *${config.currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
