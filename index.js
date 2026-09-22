@@ -97,7 +97,7 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Single Pairing Code Fix (අලුත් Code එක විතරක් පෙන්වයි)
+    // Single Pairing Code Fix
     if (!sock.authState.creds.registered && !isPairingRequested) {
         isPairingRequested = true;
         setTimeout(async () => {
@@ -138,25 +138,7 @@ async function connectToWhatsApp() {
 
             await sock.sendPresenceUpdate(config.botPresence);
 
-            try {
-                const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                const tokenStatus = config.githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴";
-                
-                const connectedMessage = `✅ *BOT CONNECTING SUCCESSFUL*\n\n` +
-                                         `🤖 *Bot Name:* ${config.botName}\n` +
-                                         `⚙️ *Work Mode:* ${config.workMode.toUpperCase()}\n` +
-                                         `• *Status:* Active 🟢\n` +
-                                         `• *Prefix:* [ ${config.currentPrefix} ]\n` +
-                                         `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmoji})\n` +
-                                         `• *View Once Download:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
-                                         `• *GitHub Token:* ${tokenStatus}\n` +
-                                         `• *GitHub Repo:* ${config.githubRepo}\n\n` +
-                                         `_${config.botName} is now ready to use!_`;
-
-                await sock.sendMessage(botJid, { text: connectedMessage });
-            } catch (err) {
-                console.error("Connected message error:", err);
-            }
+            // ඉබේ යන Connected Message එක මෙතැනින් Off කර ඇත. (Terminal එකෙහි පමණක් Active ලෙස පෙන්වයි)
         }
     });
 
