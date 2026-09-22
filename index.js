@@ -37,7 +37,14 @@ let config = {
     currentPrefix: '!',
     workMode: 'private', 
     autoReactEnabled: true,
+    autoReactTarget: 'public', // 'group', 'inbox', 'public'
     ownerReactEmoji: '👑',
+    
+    // Custom React Configurations
+    customReactEnabled: false,
+    customReactTarget: 'public', // 'group', 'inbox', 'public'
+    customEmojis: ['❤️', '👑', '♥️', '😑', '🤔'],
+    
     viewOnceDownload: true,
     githubToken: process.env.GITHUB_TOKEN || "NOT SET",
     githubRepo: process.env.GITHUB_REPO || "Gm-gaiya"
@@ -137,8 +144,6 @@ async function connectToWhatsApp() {
             isPairingRequested = false;
 
             await sock.sendPresenceUpdate(config.botPresence);
-
-            // ඉබේ යන Connected Message එක මෙතැනින් Off කර ඇත. (Terminal එකෙහි පමණක් Active ලෙස පෙන්වයි)
         }
     });
 
@@ -165,16 +170,46 @@ async function connectToWhatsApp() {
 
             await sock.sendPresenceUpdate(config.botPresence);
 
-            // Auto React System
-            if (isOwner && config.autoReactEnabled && config.ownerReactEmoji) {
-                try {
-                    await sock.sendMessage(from, { 
-                        react: { 
-                            text: config.ownerReactEmoji, 
-                            key: msg.key
-                        } 
-                    });
-                } catch (e) {}
+            // ==================== AUTO REACT & CUSTOM REACT LOGIC (FOR OTHERS ONLY) ====================
+            if (!isOwner) {
+                // 1. Auto React Handling
+                if (config.autoReactEnabled) {
+                    const isTargetMatched = 
+                        (config.autoReactTarget === 'public') ||
+                        (config.autoReactTarget === 'group' && isGroup) ||
+                        (config.autoReactTarget === 'inbox' && !isGroup);
+
+                    if (isTargetMatched) {
+                        try {
+                            await sock.sendMessage(from, { 
+                                react: { 
+                                    text: config.ownerReactEmoji, 
+                                    key: msg.key
+                                } 
+                            });
+                        } catch (e) {}
+                    }
+                }
+
+                // 2. Custom React Handling
+                if (config.customReactEnabled && config.customEmojis && config.customEmojis.length > 0) {
+                    const isCustomTargetMatched = 
+                        (config.customReactTarget === 'public') ||
+                        (config.customReactTarget === 'group' && isGroup) ||
+                        (config.customReactTarget === 'inbox' && !isGroup);
+
+                    if (isCustomTargetMatched) {
+                        try {
+                            const randomEmoji = config.customEmojis[Math.floor(Math.random() * config.customEmojis.length)];
+                            await sock.sendMessage(from, { 
+                                react: { 
+                                    text: randomEmoji, 
+                                    key: msg.key
+                                } 
+                            });
+                        } catch (e) {}
+                    }
+                }
             }
 
             const textMessage = (
@@ -244,10 +279,16 @@ async function connectToWhatsApp() {
                 else if (textMessage === '4') {
                     userState.set(from, 'AWAITING_REACT_CHOICE');
                     return await sock.sendMessage(from, { 
-                        text: `⚙️ *AUTO REACT SETTINGS*\n\nReply with option:\n*4.1* - Turn ON Auto React 🟢\n*4.2* - Turn OFF Auto React 🔴\n*4.3* - Change Emoji 👑` 
+                        text: `⚙️ *AUTO REACT SETTINGS*\n\nReply with option:\n*4.1* - Turn ON Auto React 🟢\n*4.2* - Turn OFF Auto React 🔴\n*4.3* - Target: Group Only 👥\n*4.4* - Target: Inbox Only 📥\n*4.5* - Target: Public (All) 🌐\n*4.6* - Change Single Emoji 👑` 
                     }, { quoted: msg });
                 }
                 else if (textMessage === '5') {
+                    userState.set(from, 'AWAITING_CUSTOM_REACT_CHOICE');
+                    return await sock.sendMessage(from, { 
+                        text: `⚙️ *CUSTOM REACT SETTINGS*\n\nReply with option:\n*5.1* - Turn ON Custom React 🟢\n*5.2* - Turn OFF Custom React 🔴\n*5.3* - Target: Group Only 👥\n*5.4* - Target: Inbox Only 📥\n*5.5* - Target: Public (All) 🌐\n*5.6* - Set Emojis (e.g. ❤️,👑,♥️,😑,🤔)` 
+                    }, { quoted: msg });
+                }
+                else if (textMessage === '6') {
                     config.viewOnceDownload = !config.viewOnceDownload;
                     saveSettings();
                     userState.delete(from);
@@ -282,14 +323,32 @@ async function connectToWhatsApp() {
 
             if (isOwner && currentState === 'AWAITING_REACT_CHOICE') {
                 if (textMessage === '4.1') config.autoReactEnabled = true;
-                if (textMessage === '4.2') config.autoReactEnabled = false;
-                if (textMessage === '4.3') {
+                else if (textMessage === '4.2') config.autoReactEnabled = false;
+                else if (textMessage === '4.3') config.autoReactTarget = 'group';
+                else if (textMessage === '4.4') config.autoReactTarget = 'inbox';
+                else if (textMessage === '4.5') config.autoReactTarget = 'public';
+                else if (textMessage === '4.6') {
                     userState.set(from, 'AWAITING_EMOJI');
-                    return await sock.sendMessage(from, { text: `Send the new Emoji:` }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `Send the new single Emoji:` }, { quoted: msg });
                 }
                 saveSettings();
                 userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *Auto React Updated!*` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `✅ *Auto React Settings Updated!*` }, { quoted: msg });
+            }
+
+            if (isOwner && currentState === 'AWAITING_CUSTOM_REACT_CHOICE') {
+                if (textMessage === '5.1') config.customReactEnabled = true;
+                else if (textMessage === '5.2') config.customReactEnabled = false;
+                else if (textMessage === '5.3') config.customReactTarget = 'group';
+                else if (textMessage === '5.4') config.customReactTarget = 'inbox';
+                else if (textMessage === '5.5') config.customReactTarget = 'public';
+                else if (textMessage === '5.6') {
+                    userState.set(from, 'AWAITING_CUSTOM_EMOJIS');
+                    return await sock.sendMessage(from, { text: `Send emojis separated by commas (e.g. ❤️,👑,♥️,😑,🤔):` }, { quoted: msg });
+                }
+                saveSettings();
+                userState.delete(from);
+                return await sock.sendMessage(from, { text: `✅ *Custom React Settings Updated!*` }, { quoted: msg });
             }
 
             if (isOwner && currentState === 'AWAITING_EMOJI') {
@@ -299,11 +358,70 @@ async function connectToWhatsApp() {
                 return await sock.sendMessage(from, { text: `✅ *Emoji updated to:* ${config.ownerReactEmoji}` }, { quoted: msg });
             }
 
+            if (isOwner && currentState === 'AWAITING_CUSTOM_EMOJIS') {
+                const emojiList = textMessage.split(',').map(e => e.trim()).filter(e => e.length > 0);
+                if (emojiList.length > 0) {
+                    config.customEmojis = emojiList;
+                    saveSettings();
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Custom Emojis updated to:* ${config.customEmojis.join(' ')}` }, { quoted: msg });
+                } else {
+                    return await sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again with valid emojis separated by commas.` }, { quoted: msg });
+                }
+            }
+
             // Commands List
             if (!textMessage.startsWith(config.currentPrefix)) return;
 
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
+
+            // .info Command (Group Description)
+            if (command === 'info') {
+                if (!isGroup) {
+                    return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කළ හැක්කේ WhatsApp ගෲප් තුළ පමණි!` }, { quoted: msg });
+                }
+                try {
+                    const groupMetadata = await sock.groupMetadata(from);
+                    const groupDesc = groupMetadata.desc ? groupMetadata.desc.toString() : 'මෙම ගෲප් එක සඳහා Description එකක් සකසා නැත.';
+                    const infoText = `📋 *GROUP DESCRIPTION*\n\n👥 *Group Name:* ${groupMetadata.subject}\n\n📝 *Description:*\n${groupDesc}`;
+                    return await sock.sendMessage(from, { text: infoText }, { quoted: msg });
+                } catch (e) {
+                    return await sock.sendMessage(from, { text: `❌ Group Description එක ලබා ගැනීමට නොහැකි විය.` }, { quoted: msg });
+                }
+            }
+
+            // .dp Command (Profile Picture Downloader to Owner Inbox)
+            if (command === 'dp') {
+                try {
+                    let targetJid = from;
+                    const quotedMsg = msg.message.extendedTextMessage?.contextInfo?.participant;
+                    const mentionedJid = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+
+                    if (quotedMsg) {
+                        targetJid = quotedMsg;
+                    } else if (mentionedJid) {
+                        targetJid = mentionedJid;
+                    }
+
+                    const ppUrl = await sock.profilePictureUrl(targetJid, 'image').catch(() => null);
+                    if (!ppUrl) {
+                        return await sock.sendMessage(from, { text: `❌ අදාළ ගිණුම/ගෲප් එක සඳහා Profile Picture එකක් නොමැත හෝ එය ලබා ගත නොහැක.` }, { quoted: msg });
+                    }
+
+                    const botOwnerJid = PHONE_NUMBER.includes('@s.whatsapp.net') ? PHONE_NUMBER : `${PHONE_NUMBER}@s.whatsapp.net`;
+                    
+                    await sock.sendMessage(botOwnerJid, { 
+                        image: { url: ppUrl }, 
+                        caption: `🖼️ *PROFILE PICTURE FETCHED*\n👤 *Target:* @${targetJid.split('@')[0]}`,
+                        mentions: [targetJid]
+                    });
+
+                    return await sock.sendMessage(from, { text: `✅ Profile Picture එක සාර්ථකව Bot ගේ Inbox එකට යවන ලදී!` }, { quoted: msg });
+                } catch (e) {
+                    return await sock.sendMessage(from, { text: `❌ Profile Picture එක ලබා ගැනීමේදී දෝෂයක් සිදු විය.` }, { quoted: msg });
+                }
+            }
 
             // .bot Command (Owner Only)
             if (command === 'bot') {
@@ -371,13 +489,15 @@ async function connectToWhatsApp() {
                                      `*2* - Change Bot Prefix\n` +
                                      `*3* - Work Mode Settings\n` +
                                      `*4* - Auto React Settings\n` +
-                                     `*5* - Toggle View Once Downloader\n\n` +
+                                     `*5* - Custom React Settings\n` +
+                                     `*6* - Toggle View Once Downloader\n\n` +
                                      `📌 *CURRENT CONFIGURATION*\n` +
                                      `• *Bot Name:* ${config.botName}\n` +
                                      `• *Prefix:* [ ${config.currentPrefix} ]\n` +
                                      `• *Work Mode:* ${config.workMode.toUpperCase()}\n` +
                                      `• *Online Status:* ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
-                                     `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmoji})\n` +
+                                     `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.autoReactTarget.toUpperCase()}) -> ${config.ownerReactEmoji}\n` +
+                                     `• *Custom React:* ${config.customReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.customReactTarget.toUpperCase()}) -> ${config.customEmojis.join(' ')}\n` +
                                      `• *View Once:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
                                      `• *GitHub Token:* ${config.githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴"}\n` +
                                      `• *GitHub Repo:* ${config.githubRepo}`;
@@ -395,6 +515,8 @@ async function connectToWhatsApp() {
                                  `┌──────────────\n` +
                                  `│ 📜 *${config.currentPrefix}menu* - Display Menu\n` +
                                  `│ 🏓 *${config.currentPrefix}ping* - Speed Test\n` +
+                                 `│ 📋 *${config.currentPrefix}info* - Get Group Description\n` +
+                                 `│ 🖼️ *${config.currentPrefix}dp* - Download Profile Picture to Inbox\n` +
                                  `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings (Owner Only)\n` +
                                  `│ 🤖 *${config.currentPrefix}bot name <name>* - Change Bot Name\n` +
                                  `│ 🔑 *${config.currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
@@ -435,7 +557,7 @@ async function connectToWhatsApp() {
                 const imageMsg = viewOnceMsg.imageMessage;
                 const videoMsg = viewOnceMsg.videoMessage;
 
-                const botOwnerJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                const botOwnerJid = PHONE_NUMBER.includes('@s.whatsapp.net') ? PHONE_NUMBER : `${PHONE_NUMBER}@s.whatsapp.net`;
 
                 if (imageMsg) {
                     const stream = await downloadContentFromMessage(imageMsg, 'image');
