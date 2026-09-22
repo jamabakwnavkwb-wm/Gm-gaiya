@@ -10,11 +10,15 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
+const NodeCache = require('node-cache');
 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 const startTime = Math.floor(Date.now() / 1000);
+
+// Waiting Message Issue එක නිරාකරණය සඳහා Cache එකක් සෑදීම
+const msgRetryCounterCache = new NodeCache();
 
 // InMemoryStore Safe Handling
 let store;
@@ -87,12 +91,13 @@ async function connectToWhatsApp() {
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 10000,
+        msgRetryCounterCache, // Message Sync Issue විසඳීමට එකතු කරන ලදී
         getMessage: async (key) => {
             if (store) {
                 const msg = await store.loadMessage(key.remoteJid, key.id);
                 return msg?.message || undefined;
             }
-            return undefined;
+            return { conversation: '' };
         }
     });
 
@@ -189,11 +194,23 @@ async function connectToWhatsApp() {
 
             await sock.sendPresenceUpdate(config.botPresence);
 
-            // Auto React (Owner ට පමණි)
+            // Auto React System (Fix කරන ලද කොටස)
             if (isOwner && config.autoReactEnabled && config.ownerReactEmoji) {
                 try {
-                    await sock.sendMessage(from, { react: { text: config.ownerReactEmoji, key: msg.key } });
-                } catch (e) {}
+                    await sock.sendMessage(from, { 
+                        react: { 
+                            text: config.ownerReactEmoji, 
+                            key: {
+                                remoteJid: msg.key.remoteJid,
+                                fromMe: msg.key.fromMe,
+                                id: msg.key.id,
+                                participant: msg.key.participant
+                            }
+                        } 
+                    });
+                } catch (e) {
+                    console.log("Auto React Error:", e?.message);
+                }
             }
 
             const textMessage = (
