@@ -10,15 +10,11 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
-const NodeCache = require('node-cache');
 
 const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 const startTime = Math.floor(Date.now() / 1000);
-
-// Waiting Message Issue එක නිරාකරණය සඳහා Cache එකක් සෑදීම
-const msgRetryCounterCache = new NodeCache();
 
 // InMemoryStore Safe Handling
 let store;
@@ -71,9 +67,8 @@ loadSettings();
 const processedMessages = new Set();
 const userState = new Map();
 
-// Pairing Code Request Flag
+// Pairing Code Double-Printing Fix
 let isPairingRequested = false;
-let pairingTimeout = null;
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -91,7 +86,6 @@ async function connectToWhatsApp() {
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 10000,
-        msgRetryCounterCache, // Message Sync Issue විසඳීමට එකතු කරන ලදී
         getMessage: async (key) => {
             if (store) {
                 const msg = await store.loadMessage(key.remoteJid, key.id);
@@ -103,21 +97,19 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Single Pairing Code System
+    // Single Pairing Code Fix (අලුත් Code එක විතරක් පෙන්වයි)
     if (!sock.authState.creds.registered && !isPairingRequested) {
         isPairingRequested = true;
-        if (pairingTimeout) clearTimeout(pairingTimeout);
-
-        pairingTimeout = setTimeout(async () => {
+        setTimeout(async () => {
             try {
                 let code = await sock.requestPairingCode(PHONE_NUMBER);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
-                console.log(`\n=================================\n🔑 YOUR NEW PAIRING CODE: ${code}\n=================================\n`);
+                console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
             } catch (error) {
                 console.log("Pairing code error:", error?.message || error);
                 isPairingRequested = false;
             }
-        }, 10000);
+        }, 5000);
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -127,10 +119,10 @@ async function connectToWhatsApp() {
         
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
+            isPairingRequested = false;
             
             if (statusCode === DisconnectReason.loggedOut) {
                 console.log("Session Logged Out. Clearing auth folder...");
-                isPairingRequested = false;
                 if (fs.existsSync(AUTH_DIR)) {
                     fs.rmSync(AUTH_DIR, { recursive: true, force: true });
                 }
@@ -138,10 +130,7 @@ async function connectToWhatsApp() {
             } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
                 setTimeout(() => connectToWhatsApp(), 5000);
             } else {
-                setTimeout(() => {
-                    isPairingRequested = false;
-                    connectToWhatsApp();
-                }, 5000);
+                setTimeout(() => connectToWhatsApp(), 5000);
             }
         } else if (connection === 'open') {
             console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය!`);
@@ -194,23 +183,16 @@ async function connectToWhatsApp() {
 
             await sock.sendPresenceUpdate(config.botPresence);
 
-            // Auto React System (Fix කරන ලද කොටස)
+            // Auto React System
             if (isOwner && config.autoReactEnabled && config.ownerReactEmoji) {
                 try {
                     await sock.sendMessage(from, { 
                         react: { 
                             text: config.ownerReactEmoji, 
-                            key: {
-                                remoteJid: msg.key.remoteJid,
-                                fromMe: msg.key.fromMe,
-                                id: msg.key.id,
-                                participant: msg.key.participant
-                            }
+                            key: msg.key
                         } 
                     });
-                } catch (e) {
-                    console.log("Auto React Error:", e?.message);
-                }
+                } catch (e) {}
             }
 
             const textMessage = (
