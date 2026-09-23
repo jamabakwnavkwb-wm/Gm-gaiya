@@ -20,7 +20,6 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection Caught:', reason);
 });
 
-// Phone number එක පහත පරිදි digits පමණක් තිබිය යුතුය
 const PHONE_NUMBER = (process.env.PHONE_NUMBER || "94764802314").replace(/[^0-9]/g, '');
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
@@ -106,7 +105,6 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        // Pairing Code පිළිගැනීමට වඩාත්ම සුදුසු Official Chrome Desktop User-Agent
         browser: ["Ubuntu", "Chrome", "20.0.04"],
         generateHighQualityLinkPreview: true,
         
