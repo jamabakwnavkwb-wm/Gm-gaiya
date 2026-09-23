@@ -16,9 +16,6 @@ const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 const startTime = Math.floor(Date.now() / 1000);
 
-// Helper Delay Function (තත්පර 5ක Delay එකක් ලබා දීමට)
-const delay = ms => new Promise(res => setTimeout(res, ms));
-
 // InMemoryStore Safe Handling
 let store;
 try {
@@ -162,8 +159,8 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // Loop Fix: බොට්ගේ තමන්ගේම ස්වයංක්‍රීය මැසේජ් හෝ Reaction මැසේජ් Process වීම නතර කිරීම
-            if (msg.key.fromMe) return;
+            // Reaction messagesignore කිරීම
+            if (msg.message.reactionMessage) return;
 
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             if (msgTime < startTime) return; 
@@ -184,7 +181,6 @@ async function connectToWhatsApp() {
             // ==================== OWNER AUTO REACT ====================
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
                 try {
-                    await delay(5000); // තත්පර 5ක Delay එක
                     await sock.sendMessage(from, { 
                         react: { 
                             text: config.ownerReactEmoji, 
@@ -205,7 +201,6 @@ async function connectToWhatsApp() {
 
                     if (isTargetMatched) {
                         try {
-                            await delay(5000); // තත්පර 5ක Delay එක
                             await sock.sendMessage(from, { 
                                 react: { 
                                     text: config.ownerReactEmoji, 
@@ -225,7 +220,6 @@ async function connectToWhatsApp() {
 
                     if (isCustomTargetMatched) {
                         try {
-                            await delay(5000); // තත්පර 5ක Delay එක
                             const randomEmoji = config.customEmojis[Math.floor(Math.random() * config.customEmojis.length)];
                             await sock.sendMessage(from, { 
                                 react: { 
@@ -419,9 +413,6 @@ async function connectToWhatsApp() {
 
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
-
-            // ==================== COMMAND DELAY (තත්පර 5) ====================
-            await delay(5000); 
 
             // .info Command (Group Description)
             if (command === 'info') {
