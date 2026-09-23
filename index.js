@@ -13,11 +13,11 @@ const { exec } = require('child_process');
 
 // Server Crash වී බොට් Off වීම සම්පූර්ණයෙන්ම වළක්වන Global Error Handlers
 process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception Caught:', err);
+    console.error('Uncaught Exception Caught:', err?.message || err);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection Caught:', reason);
+    console.error('Unhandled Rejection Caught:', reason?.message || reason);
 });
 
 const PHONE_NUMBER = (process.env.PHONE_NUMBER || "94764802314").replace(/[^0-9]/g, '');
@@ -105,7 +105,6 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        // Pairing code invalid වීම වළක්වන Official Browser Profile එක
         browser: ["Mac OS", "Chrome", "10.15.7"],
         generateHighQualityLinkPreview: true,
         
@@ -131,7 +130,7 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Single Valid Pairing Code Generation Logic
+    // Pairing Code Generation Logic
     if (!sock.authState.creds.registered && !isPairingRequested) {
         isPairingRequested = true;
         setTimeout(async () => {
@@ -174,53 +173,61 @@ async function connectToWhatsApp() {
         }
     });
 
+    // Safe Async Safe React Helper Function
+    async function safeReact(from, emoji, key) {
+        if (!emoji || !key) return;
+        try {
+            await sock.sendMessage(from, { react: { text: emoji, key: key } });
+        } catch (e) {
+            // Group Error, Permission Issue, or Timeout bypass
+        }
+    }
+
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
             if (type !== 'notify') return;
 
             const msg = messages[0];
-            if (!msg) return;
+            if (!msg || !msg.key) return;
 
-            if (msg.messageStubType) return;
+            // Group event/Stub message / Admin Settings change / Left / Join ignore කිරීම
+            if (msg.messageStubType || msg.stubType) return;
 
-            if (!msg.message || Object.keys(msg.message).length === 0) {
-                return; 
-            }
+            if (!msg.message || Object.keys(msg.message).length === 0) return;
 
+            // Reaction messages bypass
             if (msg.message.reactionMessage) return;
 
+            // Delay වළක්වන Time Check (තත්පර 90කට වඩා පැරණි නම් bypass)
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             
-            if (msgTime && (currentTimestamp - msgTime > 60)) {
+            if (msgTime && (currentTimestamp - msgTime > 90)) {
                 return; 
             }
 
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
-            setTimeout(() => processedMessages.delete(msgId), 60000);
+            
+            // Garbage Collection for Processed Memory
+            if (processedMessages.size > 1000) {
+                processedMessages.clear();
+            } else {
+                setTimeout(() => processedMessages.delete(msgId), 60000);
+            }
 
             const from = msg.key.remoteJid;
+            if (!from) return;
+
             const isGroup = from.endsWith('@g.us');
             const senderJid = msg.key.participant || msg.key.remoteJid || '';
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            try {
-                await sock.sendPresenceUpdate(config.botPresence);
-            } catch (e) {}
-
             // Owner Auto React
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
-                try {
-                    await sock.sendMessage(from, { 
-                        react: { 
-                            text: config.ownerReactEmoji, 
-                            key: msg.key
-                        } 
-                    });
-                } catch (e) {}
+                await safeReact(from, config.ownerReactEmoji, msg.key);
             }
 
             // Others Auto React & Custom React Logic
@@ -232,14 +239,7 @@ async function connectToWhatsApp() {
                         (config.autoReactTarget === 'inbox' && !isGroup);
 
                     if (isTargetMatched) {
-                        try {
-                            await sock.sendMessage(from, { 
-                                react: { 
-                                    text: config.ownerReactEmoji, 
-                                    key: msg.key
-                                } 
-                            });
-                        } catch (e) {}
+                        await safeReact(from, config.ownerReactEmoji, msg.key);
                     }
                 }
 
@@ -250,15 +250,8 @@ async function connectToWhatsApp() {
                         (config.customReactTarget === 'inbox' && !isGroup);
 
                     if (isCustomTargetMatched) {
-                        try {
-                            const randomEmoji = config.customEmojis[Math.floor(Math.random() * config.customEmojis.length)];
-                            await sock.sendMessage(from, { 
-                                react: { 
-                                    text: randomEmoji, 
-                                    key: msg.key
-                                } 
-                            });
-                        } catch (e) {}
+                        const randomEmoji = config.customEmojis[Math.floor(Math.random() * config.customEmojis.length)];
+                        await safeReact(from, randomEmoji, msg.key);
                     }
                 }
             }
@@ -281,7 +274,7 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
-            if (isOwner && currentState && currentState.type === 'CONFIRM_TOKEN') {
+            if (isOwner && currentState && typeof currentState === 'object' && currentState.type === 'CONFIRM_TOKEN') {
                 if (textMessage === '1') {
                     config.githubToken = currentState.data;
                     saveSettings();
@@ -293,7 +286,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            if (isOwner && currentState && currentState.type === 'CONFIRM_REPO') {
+            if (isOwner && currentState && typeof currentState === 'object' && currentState.type === 'CONFIRM_REPO') {
                 if (textMessage === '1') {
                     config.githubRepo = currentState.data;
                     saveSettings();
@@ -611,7 +604,7 @@ async function connectToWhatsApp() {
             }
 
         } catch (error) {
-            console.error("Non-fatal Message Processing Error:", error);
+            console.error("Safe Handled Processing Error:", error?.message || error);
         }
     });
 }
