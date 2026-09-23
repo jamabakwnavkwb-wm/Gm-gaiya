@@ -109,8 +109,12 @@ async function connectToWhatsApp() {
         keepAliveIntervalMs: 10000,
         getMessage: async (key) => {
             if (store) {
-                const msg = await store.loadMessage(key.remoteJid, key.id);
-                return msg?.message || undefined;
+                try {
+                    const msg = await store.loadMessage(key.remoteJid, key.id);
+                    return msg?.message || undefined;
+                } catch (e) {
+                    return { conversation: '' };
+                }
             }
             return { conversation: '' };
         }
@@ -134,6 +138,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // Continuous Connection Handler (බොට් Off නොවී සදාකාලිකව Reconnect වීම)
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         
@@ -141,19 +146,20 @@ async function connectToWhatsApp() {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             isPairingRequested = false;
             
+            console.log(`⚠️ Connection closed with status code: ${statusCode}. Reconnecting...`);
+
             if (statusCode === DisconnectReason.loggedOut) {
                 console.log("Session Logged Out. Clearing auth folder...");
                 if (fs.existsSync(AUTH_DIR)) {
                     fs.rmSync(AUTH_DIR, { recursive: true, force: true });
                 }
                 setTimeout(() => connectToWhatsApp(), 5000);
-            } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
-                setTimeout(() => connectToWhatsApp(), 5000);
             } else {
-                setTimeout(() => connectToWhatsApp(), 5000);
+                // වෙනත් ඕනෑම Disconnect පැමිණි විට Auto Reconnect වෙයි
+                setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Admin Only Group Error Safe)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect & Waiting Message Fix Active)`);
             isPairingRequested = false;
 
             try {
@@ -167,12 +173,20 @@ async function connectToWhatsApp() {
             if (type !== 'notify') return;
 
             const msg = messages[0];
-            if (!msg || !msg.message) return;
+            if (!msg) return;
+
+            // Stub Message හෝ Stub Type ඇති විට (System Messages) Skip කිරීම
+            if (msg.messageStubType) return;
+
+            // Waiting Message / Decrypt නොවූ මැසේජ් Filter කර Skip කිරීම (Arrow Error/Crash Fix)
+            if (!msg.message || Object.keys(msg.message).length === 0) {
+                return; 
+            }
 
             // Reaction messages ignore කිරීම
             if (msg.message.reactionMessage) return;
 
-            // Offline තිඛෙන විට ලැබුණු පැරණි මැසේජ් නිසා Sync Freeze වීම වැළැක්වීම
+            // Offline තිඛෙන විට ලැබුණු පැරණි මැසේජ් Skip කිරීම
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             
@@ -205,7 +219,7 @@ async function connectToWhatsApp() {
                         } 
                     });
                 } catch (e) {
-                    // Admin only ගෲප් වල හෝ Permission නැති තැනකදී බොට් Off නොවී Skip කරයි
+                    // Waiting message / Permission error ආවොත් Crash නොවී Skip කරයි
                 }
             }
 
