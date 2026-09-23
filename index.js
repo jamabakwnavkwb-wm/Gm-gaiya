@@ -87,7 +87,7 @@ loadSettings();
 const processedMessages = new Set();
 const userState = new Map();
 
-// Pairing Code Double-Printing Fix
+// Single Clean Pairing Code Execution Control Flag
 let isPairingRequested = false;
 
 async function connectToWhatsApp() {
@@ -131,6 +131,7 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
+    // අලුත් Pairing Code එකක් පමණක් Double වෙන්නේ නැතුව පෙන්වන කොටස
     if (!sock.authState.creds.registered && !isPairingRequested) {
         isPairingRequested = true;
         setTimeout(async () => {
@@ -139,15 +140,15 @@ async function connectToWhatsApp() {
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
             } catch (error) {
-                console.log("Pairing code error:", error?.message || error);
+                console.log("Pairing code generation retry...");
                 isPairingRequested = false;
             }
-        }, 5000);
+        }, 3000);
     }
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Continuous Connection Handler (401 Disconnect වුවද Off නොවී ස්වයංක්‍රීයව Reconnect වීම)
+    // Continuous Connection Handler
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         
@@ -155,11 +156,11 @@ async function connectToWhatsApp() {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             isPairingRequested = false;
             
-            console.log(`⚠️ Connection closed with status code: ${statusCode}. Auto Reconnecting...`);
+            console.log(`⚠️ Connection closed with status code: ${statusCode}. Reconnecting...`);
 
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                console.log("Session temporary unlinked or invalid. Attempting reconnection...");
-                setTimeout(() => connectToWhatsApp(), 5000);
+                console.log("Session cleared/unlinked. Reconnecting cleanly...");
+                setTimeout(() => connectToWhatsApp(), 3000);
             } else {
                 setTimeout(() => connectToWhatsApp(), 3000);
             }
@@ -180,18 +181,14 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg) return;
 
-            // Stub Message හෝ System Messages Skip කිරීම
             if (msg.messageStubType) return;
 
-            // Waiting Message / Decrypt නොවූ මැසේජ් Filter කර Skip කිරීම (Arrow Error Fix)
             if (!msg.message || Object.keys(msg.message).length === 0) {
                 return; 
             }
 
-            // Reaction messages ignore කිරීම
             if (msg.message.reactionMessage) return;
 
-            // Offline තිඛෙන විට ලැබුණු පැරණි මැසේජ් Skip කිරීම
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             
@@ -214,7 +211,7 @@ async function connectToWhatsApp() {
                 await sock.sendPresenceUpdate(config.botPresence);
             } catch (e) {}
 
-            // ==================== OWNER AUTO REACT (SAFE HANDLING) ====================
+            // Owner Auto React
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
                 try {
                     await sock.sendMessage(from, { 
@@ -226,9 +223,8 @@ async function connectToWhatsApp() {
                 } catch (e) {}
             }
 
-            // ==================== OTHERS AUTO REACT & CUSTOM REACT LOGIC (SAFE HANDLING) ====================
+            // Others Auto React & Custom React Logic
             if (!isOwner) {
-                // 1. Auto React Handling for Others
                 if (config.autoReactEnabled) {
                     const isTargetMatched = 
                         (config.autoReactTarget === 'public') ||
@@ -247,7 +243,6 @@ async function connectToWhatsApp() {
                     }
                 }
 
-                // 2. Custom React Handling for Others
                 if (config.customReactEnabled && config.customEmojis && config.customEmojis.length > 0) {
                     const isCustomTargetMatched = 
                         (config.customReactTarget === 'public') ||
@@ -278,7 +273,6 @@ async function connectToWhatsApp() {
 
             if (!textMessage) return;
 
-            // Mode Settings පාලනය
             if (!isOwner) {
                 if (config.workMode === 'private') return; 
                 if (config.workMode === 'inbox' && isGroup) return; 
@@ -287,7 +281,6 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
-            // Interactive Confirmations (Owner ට පමණි)
             if (isOwner && currentState && currentState.type === 'CONFIRM_TOKEN') {
                 if (textMessage === '1') {
                     config.githubToken = currentState.data;
@@ -312,7 +305,6 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // Interactive Settings Logic (Owner ට පමණි)
             if (isOwner && currentState === 'AWAITING_SETTING_CHOICE') {
                 if (textMessage === '1') {
                     userState.set(from, 'AWAITING_ONLINE_CHOICE');
@@ -444,13 +436,12 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // Commands List
             if (!textMessage.startsWith(config.currentPrefix)) return;
 
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .info Command (Group Description)
+            // .info Command
             if (command === 'info') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කළ හැක්කේ WhatsApp ගෲප් තුළ පමණි!` }, { quoted: msg });
@@ -465,7 +456,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // .bot Command (Owner Only)
+            // .bot Command
             if (command === 'bot') {
                 if (!isOwner) return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
 
@@ -483,7 +474,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // .apply Command (Owner Only)
+            // .apply Command
             if (command === 'apply') {
                 if (!isOwner) return await sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
 
@@ -517,7 +508,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // Setting Command (Owner ට පමණි)
+            // Setting Command
             if (command === 'setting' || command === 'settings') {
                 if (!isOwner) {
                     return await sock.sendMessage(from, { text: `⚠️ Settings වෙනස් කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg });
