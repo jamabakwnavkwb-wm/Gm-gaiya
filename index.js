@@ -83,7 +83,15 @@ let isPairingRequested = false;
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-    const { version } = await fetchLatestBaileysVersion();
+    
+    // WhatsApp Update වලට ගැළපෙන පරිදි Dynamic Version Fetching යෙදීම
+    let version;
+    try {
+        const fetched = await fetchLatestBaileysVersion();
+        version = fetched.version;
+    } catch (e) {
+        version = [2, 3000, 1015901307]; // Fallback version if network fails
+    }
 
     const sock = makeWASocket({
         version,
@@ -93,7 +101,7 @@ async function connectToWhatsApp() {
         browser: ['Ubuntu', 'Chrome', '20.0.04'],
         generateHighQualityLinkPreview: true,
         
-        // WhatsApp Sync Freeze එක වැළැක්වීමට යොදූ Settings
+        // Sync Freeze & Connectivity Bug Fixes
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
         markOnlineOnConnect: true,
@@ -148,7 +156,7 @@ async function connectToWhatsApp() {
                 setTimeout(() => connectToWhatsApp(), 5000);
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය!`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (WhatsApp Updates Supported)`);
             isPairingRequested = false;
 
             await sock.sendPresenceUpdate(config.botPresence);
@@ -165,12 +173,12 @@ async function connectToWhatsApp() {
             // Reaction messages ignore කිරීම
             if (msg.message.reactionMessage) return;
 
-            // Offline වී නැවත Data ON කළ විට පැරණි මැසේජ් නිසා Sync Freeze වීම වැළැක්වීම (තත්පර 60කට වඩා පැරණි නම් Ignore කෙරේ)
+            // Offline වී නැවත Data ON කළ විට පැරණි මැසේජ් නිසා Sync Freeze වීම වැළැක්වීම
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             
             if (msgTime && (currentTimestamp - msgTime > 60)) {
-                return; // Offline තිඛෙන අතරතුර ලැබුණු පැරණි මැසේජ් Skip කරයි
+                return; // තත්පර 60කට වඩා පැරණි Offline මැසේජ් Skip කරයි
             }
 
             const msgId = msg.key.id;
