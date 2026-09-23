@@ -84,13 +84,12 @@ let isPairingRequested = false;
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     
-    // WhatsApp Update වලට ගැළපෙන පරිදි Dynamic Version Fetching යෙදීම
     let version;
     try {
         const fetched = await fetchLatestBaileysVersion();
         version = fetched.version;
     } catch (e) {
-        version = [2, 3000, 1015901307]; // Fallback version if network fails
+        version = [2, 3000, 1015901307];
     }
 
     const sock = makeWASocket({
@@ -101,7 +100,6 @@ async function connectToWhatsApp() {
         browser: ['Ubuntu', 'Chrome', '20.0.04'],
         generateHighQualityLinkPreview: true,
         
-        // Sync Freeze & Connectivity Bug Fixes
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
         markOnlineOnConnect: true,
@@ -120,7 +118,6 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Single Pairing Code Fix
     if (!sock.authState.creds.registered && !isPairingRequested) {
         isPairingRequested = true;
         setTimeout(async () => {
@@ -156,10 +153,12 @@ async function connectToWhatsApp() {
                 setTimeout(() => connectToWhatsApp(), 5000);
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (WhatsApp Updates Supported)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Admin Only Group Error Safe)`);
             isPairingRequested = false;
 
-            await sock.sendPresenceUpdate(config.botPresence);
+            try {
+                await sock.sendPresenceUpdate(config.botPresence);
+            } catch (e) {}
         }
     });
 
@@ -173,12 +172,12 @@ async function connectToWhatsApp() {
             // Reaction messages ignore කිරීම
             if (msg.message.reactionMessage) return;
 
-            // Offline වී නැවත Data ON කළ විට පැරණි මැසේජ් නිසා Sync Freeze වීම වැළැක්වීම
+            // Offline තිඛෙන විට ලැබුණු පැරණි මැසේජ් නිසා Sync Freeze වීම වැළැක්වීම
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             
             if (msgTime && (currentTimestamp - msgTime > 60)) {
-                return; // තත්පර 60කට වඩා පැරණි Offline මැසේජ් Skip කරයි
+                return; 
             }
 
             const msgId = msg.key.id;
@@ -192,9 +191,11 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            await sock.sendPresenceUpdate(config.botPresence);
+            try {
+                await sock.sendPresenceUpdate(config.botPresence);
+            } catch (e) {}
 
-            // ==================== OWNER AUTO REACT ====================
+            // ==================== OWNER AUTO REACT (SAFE HANDLING) ====================
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
                 try {
                     await sock.sendMessage(from, { 
@@ -203,10 +204,12 @@ async function connectToWhatsApp() {
                             key: msg.key
                         } 
                     });
-                } catch (e) {}
+                } catch (e) {
+                    // Admin only ගෲප් වල හෝ Permission නැති තැනකදී බොට් Off නොවී Skip කරයි
+                }
             }
 
-            // ==================== OTHERS AUTO REACT & CUSTOM REACT LOGIC ====================
+            // ==================== OTHERS AUTO REACT & CUSTOM REACT LOGIC (SAFE HANDLING) ====================
             if (!isOwner) {
                 // 1. Auto React Handling for Others
                 if (config.autoReactEnabled) {
@@ -600,7 +603,7 @@ async function connectToWhatsApp() {
             }
 
         } catch (error) {
-            console.error("Error:", error);
+            console.error("Non-fatal Message Processing Error:", error);
         }
     });
 }
