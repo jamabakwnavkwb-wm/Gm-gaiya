@@ -11,6 +11,15 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
+// Server Crash වී බොට් Off වීම සම්පූර්ණයෙන්ම වළක්වන Global Error Handlers
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception Caught:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection Caught:', reason);
+});
+
 const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
@@ -138,7 +147,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Continuous Connection Handler (බොට් Off නොවී සදාකාලිකව Reconnect වීම)
+    // Continuous Connection Handler (401 Disconnect වුවද Off නොවී ස්වයංක්‍රීයව Reconnect වීම)
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         
@@ -146,20 +155,16 @@ async function connectToWhatsApp() {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             isPairingRequested = false;
             
-            console.log(`⚠️ Connection closed with status code: ${statusCode}. Reconnecting...`);
+            console.log(`⚠️ Connection closed with status code: ${statusCode}. Auto Reconnecting...`);
 
-            if (statusCode === DisconnectReason.loggedOut) {
-                console.log("Session Logged Out. Clearing auth folder...");
-                if (fs.existsSync(AUTH_DIR)) {
-                    fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-                }
+            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                console.log("Session temporary unlinked or invalid. Attempting reconnection...");
                 setTimeout(() => connectToWhatsApp(), 5000);
             } else {
-                // වෙනත් ඕනෑම Disconnect පැමිණි විට Auto Reconnect වෙයි
                 setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect & Waiting Message Fix Active)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect Active)`);
             isPairingRequested = false;
 
             try {
@@ -175,10 +180,10 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg) return;
 
-            // Stub Message හෝ Stub Type ඇති විට (System Messages) Skip කිරීම
+            // Stub Message හෝ System Messages Skip කිරීම
             if (msg.messageStubType) return;
 
-            // Waiting Message / Decrypt නොවූ මැසේජ් Filter කර Skip කිරීම (Arrow Error/Crash Fix)
+            // Waiting Message / Decrypt නොවූ මැසේජ් Filter කර Skip කිරීම (Arrow Error Fix)
             if (!msg.message || Object.keys(msg.message).length === 0) {
                 return; 
             }
@@ -218,9 +223,7 @@ async function connectToWhatsApp() {
                             key: msg.key
                         } 
                     });
-                } catch (e) {
-                    // Waiting message / Permission error ආවොත් Crash නොවී Skip කරයි
-                }
+                } catch (e) {}
             }
 
             // ==================== OTHERS AUTO REACT & CUSTOM REACT LOGIC (SAFE HANDLING) ====================
