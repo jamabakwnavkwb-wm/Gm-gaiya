@@ -87,7 +87,6 @@ loadSettings();
 const processedMessages = new Set();
 const userState = new Map();
 
-// Single Clean Pairing Code Execution Control Flag
 let isPairingRequested = false;
 
 async function connectToWhatsApp() {
@@ -106,7 +105,8 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ['Ubuntu', 'Chrome', '20.0.04'],
+        // WhatsApp Pairing Code සඳහා වඩාත් ගැළපෙන Browser Config එක
+        browser: ['Mac OS', 'Chrome', '121.0.6167.160'],
         generateHighQualityLinkPreview: true,
         
         syncFullHistory: false,
@@ -131,19 +131,19 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // අලුත් Pairing Code එකක් පමණක් Double වෙන්නේ නැතුව පෙන්වන කොටස
+    // Instant & Valid Pairing Code Generation
     if (!sock.authState.creds.registered && !isPairingRequested) {
         isPairingRequested = true;
         setTimeout(async () => {
             try {
-                let code = await sock.requestPairingCode(PHONE_NUMBER);
+                let code = await sock.requestPairingCode(PHONE_NUMBER.replace(/[^0-9]/g, ''));
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
             } catch (error) {
-                console.log("Pairing code generation retry...");
+                console.log("Pairing Code Error! Retrying...", error?.message || error);
                 isPairingRequested = false;
             }
-        }, 3000);
+        }, 2000);
     }
 
     sock.ev.on('creds.update', saveCreds);
