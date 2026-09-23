@@ -14,7 +14,6 @@ const { exec } = require('child_process');
 const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
-const startTime = Math.floor(Date.now() / 1000);
 
 // InMemoryStore Safe Handling
 let store;
@@ -93,8 +92,12 @@ async function connectToWhatsApp() {
         logger: pino({ level: 'silent' }),
         browser: ['Ubuntu', 'Chrome', '20.0.04'],
         generateHighQualityLinkPreview: true,
+        
+        // WhatsApp Sync Freeze එක වැළැක්වීමට යොදූ Settings
         syncFullHistory: false,
+        shouldSyncHistoryMessage: () => false,
         markOnlineOnConnect: true,
+        
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 10000,
@@ -159,11 +162,16 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.message) return;
 
-            // Reaction messagesignore කිරීම
+            // Reaction messages ignore කිරීම
             if (msg.message.reactionMessage) return;
 
+            // Offline වී නැවත Data ON කළ විට පැරණි මැසේජ් නිසා Sync Freeze වීම වැළැක්වීම (තත්පර 60කට වඩා පැරණි නම් Ignore කෙරේ)
+            const currentTimestamp = Math.floor(Date.now() / 1000);
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
-            if (msgTime < startTime) return; 
+            
+            if (msgTime && (currentTimestamp - msgTime > 60)) {
+                return; // Offline තිඛෙන අතරතුර ලැබුණු පැරණි මැසේජ් Skip කරයි
+            }
 
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
