@@ -20,7 +20,8 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection Caught:', reason);
 });
 
-const PHONE_NUMBER = process.env.PHONE_NUMBER || "94764802314";
+// Phone number එක පහත පරිදි digits පමණක් තිබිය යුතුය
+const PHONE_NUMBER = (process.env.PHONE_NUMBER || "94764802314").replace(/[^0-9]/g, '');
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 
@@ -105,8 +106,8 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        // WhatsApp Pairing Code සඳහා වඩාත් ගැළපෙන Browser Config එක
-        browser: ['Mac OS', 'Chrome', '121.0.6167.160'],
+        // Pairing Code පිළිගැනීමට වඩාත්ම සුදුසු Official Chrome Desktop User-Agent
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
         generateHighQualityLinkPreview: true,
         
         syncFullHistory: false,
@@ -131,24 +132,24 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Instant & Valid Pairing Code Generation
+    // Single Valid Pairing Code Generation Logic
     if (!sock.authState.creds.registered && !isPairingRequested) {
         isPairingRequested = true;
         setTimeout(async () => {
             try {
-                let code = await sock.requestPairingCode(PHONE_NUMBER.replace(/[^0-9]/g, ''));
+                let code = await sock.requestPairingCode(PHONE_NUMBER);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
                 console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
             } catch (error) {
-                console.log("Pairing Code Error! Retrying...", error?.message || error);
+                console.log("Pairing Code Generation Error. Retrying...", error?.message || error);
                 isPairingRequested = false;
             }
-        }, 2000);
+        }, 3000);
     }
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Continuous Connection Handler
+    // Connection Handler
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         
