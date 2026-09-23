@@ -105,7 +105,8 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        // Pairing code invalid වීම වළක්වන Official Browser Profile එක
+        browser: ["Mac OS", "Chrome", "10.15.7"],
         generateHighQualityLinkPreview: true,
         
         syncFullHistory: false,
@@ -142,7 +143,7 @@ async function connectToWhatsApp() {
                 console.log("Pairing Code Generation Error. Retrying...", error?.message || error);
                 isPairingRequested = false;
             }
-        }, 3000);
+        }, 5000);
     }
 
     sock.ev.on('creds.update', saveCreds);
