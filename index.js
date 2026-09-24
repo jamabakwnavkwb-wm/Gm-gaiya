@@ -12,10 +12,17 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { exec, spawn } = require('child_process');
-const NodeCache = require('node-cache');
 
-// Decryption Key Retry Cache
-const msgRetryCounterCache = new NodeCache();
+// Safe NodeCache Module Requirement (Fixes MODULE_NOT_FOUND error)
+let NodeCache;
+let msgRetryCounterCache;
+try {
+    NodeCache = require('node-cache');
+    msgRetryCounterCache = new NodeCache();
+} catch (e) {
+    console.log("⚠️ node-cache package is not installed. Using fallback memory cache.");
+    msgRetryCounterCache = new Map();
+}
 
 // Global Error Handlers
 process.on('uncaughtException', (err) => {
@@ -148,7 +155,7 @@ async function connectToWhatsApp() {
 
     // Connection & Valid Pairing Code Generation Logic
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect } = update;
 
         if (!sock.authState.creds.registered && !isPairingRequested) {
             isPairingRequested = true;
@@ -157,12 +164,12 @@ async function connectToWhatsApp() {
                     console.log(`\n⏳ Requesting Pairing Code for phone number: +${PHONE_NUMBER}...`);
                     let code = await sock.requestPairingCode(PHONE_NUMBER);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    console.log(`\n=================================\n🔑 YOUR VALID PAIRING CODE: ${code}\n=================================\n`);
+                    console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
                 } catch (error) {
                     console.log("⚠️ Pairing Code Generation Error. Retrying in 5 seconds...", error?.message || error);
                     isPairingRequested = false;
                 }
-            }, 6000);
+            }, 5000);
         }
 
         if (connection === 'close') {
