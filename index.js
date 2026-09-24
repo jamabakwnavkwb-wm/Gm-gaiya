@@ -108,10 +108,9 @@ async function connectToWhatsApp() {
         browser: ["Mac OS", "Chrome", "10.15.7"],
         generateHighQualityLinkPreview: true,
         
-        // Placeholder Sync වැළැක්වීම
-        syncFullHistory: false,
-        shouldSyncHistoryMessage: () => false,
-        markOnlineOnConnect: false,
+        // Decryption Fix Configuration
+        syncFullHistory: true,
+        markOnlineOnConnect: true,
         
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
@@ -125,7 +124,7 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return undefined;
+            return { conversation: 'Bot Connected' };
         }
     });
 
@@ -191,23 +190,14 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // System / Stub / Protocol messages ignore කිරීම
-            if (msg.messageStubType || msg.stubType) return;
-
             // Message content නොමැති Placeholder Ignore කිරීම
             if (!msg.message || Object.keys(msg.message).length === 0) return;
-
-            // Protocol messages ignore කිරීම
-            if (msg.message.protocolMessage || msg.message.senderKeyDistributionMessage) return;
-
-            // Reaction messages ignore කිරීම
-            if (msg.message.reactionMessage) return;
 
             // Delay වූ හෝ පැරණි Messages Bypass කිරීම
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             
-            if (msgTime && (currentTimestamp - msgTime > 60)) {
+            if (msgTime && (currentTimestamp - msgTime > 120)) {
                 return; 
             }
 
