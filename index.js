@@ -5,6 +5,7 @@ const {
     fetchLatestBaileysVersion, 
     downloadContentFromMessage,
     makeInMemoryStore,
+    makeCacheableSignalKeyStore,
     Browsers
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
@@ -12,20 +13,20 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
-// Server Crash වී බොට් Off වීම සම්පූර්ණයෙන්ම වළක්වන Global Error Handlers
+// Unhandled Errors නිසා Server / Bot Crash වීම වැළැක්වීම
 process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception Caught:', err?.message || err);
+    console.error('Uncaught Exception:', err?.message || err);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection Caught:', reason?.message || reason);
+    console.error('Unhandled Rejection:', reason?.message || reason);
 });
 
 const PHONE_NUMBER = (process.env.PHONE_NUMBER || "94764802314").replace(/[^0-9]/g, '');
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 
-// InMemoryStore Safe Handling
+// InMemoryStore Optimization
 let store;
 try {
     store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
@@ -39,7 +40,7 @@ try {
     console.log("Store initialization skipped or failed.");
 }
 
-// Default Configurations
+// Configurations
 let config = {
     botName: 'GM GAIYA - MD',
     botPresence: 'available',
@@ -87,7 +88,6 @@ loadSettings();
 
 const processedMessages = new Set();
 const userState = new Map();
-
 let isPairingRequested = false;
 
 async function connectToWhatsApp() {
@@ -101,21 +101,27 @@ async function connectToWhatsApp() {
         version = [2, 3000, 1015901307];
     }
 
+    const logger = pino({ level: 'silent' });
+
     const sock = makeWASocket({
         version,
-        auth: state,
+        // E2E Message Encryption & Session Key caching optimization (Fixes "Waiting for this message")
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, logger),
+        },
         printQRInTerminal: false,
-        logger: pino({ level: 'silent' }),
+        logger,
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Decryption & 428 Connection Fix Settings
-        syncFullHistory: true,
+        // Fast performance & Reconnection Settings
+        syncFullHistory: false,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 10000,
-        retryRequestDelayMs: 2500,
+        keepAliveIntervalMs: 15000,
+        retryRequestDelayMs: 2000,
 
         getMessage: async (key) => {
             if (store) {
@@ -126,13 +132,13 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return { conversation: 'Bot Connected' };
+            return undefined;
         }
     });
 
     if (store) store.bind(sock.ev);
 
-    // Connection & Pairing Code Handler Fix (Prevents 428 Error)
+    // Connection Handler
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -147,7 +153,7 @@ async function connectToWhatsApp() {
                     console.log("Pairing Code Generation Error. Retrying...", error?.message || error);
                     isPairingRequested = false;
                 }
-            }, 6000);
+            }, 5000);
         }
 
         if (connection === 'close') {
@@ -155,13 +161,7 @@ async function connectToWhatsApp() {
             isPairingRequested = false;
             
             console.log(`⚠️ Connection closed with status code: ${statusCode}. Reconnecting...`);
-
-            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                console.log("Session unlinked or reset. Reconnecting...");
-                setTimeout(() => connectToWhatsApp(), 3000);
-            } else {
-                setTimeout(() => connectToWhatsApp(), 3000);
-            }
+            setTimeout(() => connectToWhatsApp(), 3000);
         } else if (connection === 'open') {
             console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect Active)`);
             isPairingRequested = false;
@@ -176,12 +176,10 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Safe Async React Helper
-    async function safeReact(from, emoji, key) {
+    // Instant Reaction Handler
+    function safeReact(from, emoji, key) {
         if (!emoji || !key) return;
-        try {
-            await sock.sendMessage(from, { react: { text: emoji, key: key } });
-        } catch (e) {}
+        sock.sendMessage(from, { react: { text: emoji, key: key } }).catch(() => {});
     }
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -191,16 +189,8 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Message content නොමැති Placeholder Ignore කිරීම
+            // Decryption Pending / Empty Messages Skip
             if (!msg.message || Object.keys(msg.message).length === 0) return;
-
-            // Delay වූ හෝ පැරණි Messages Bypass කිරීම
-            const currentTimestamp = Math.floor(Date.now() / 1000);
-            const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
-            
-            if (msgTime && (currentTimestamp - msgTime > 120)) {
-                return; 
-            }
 
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
@@ -209,7 +199,7 @@ async function connectToWhatsApp() {
             if (processedMessages.size > 1000) {
                 processedMessages.clear();
             } else {
-                setTimeout(() => processedMessages.delete(msgId), 60000);
+                setTimeout(() => processedMessages.delete(msgId), 30000);
             }
 
             const from = msg.key.remoteJid;
@@ -220,9 +210,9 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            // Owner Auto React
+            // Owner Instant Auto React
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
-                await safeReact(from, config.ownerReactEmoji, msg.key);
+                safeReact(from, config.ownerReactEmoji, msg.key);
             }
 
             // Others Auto React & Custom React Logic
@@ -234,7 +224,7 @@ async function connectToWhatsApp() {
                         (config.autoReactTarget === 'inbox' && !isGroup);
 
                     if (isTargetMatched) {
-                        await safeReact(from, config.ownerReactEmoji, msg.key);
+                        safeReact(from, config.ownerReactEmoji, msg.key);
                     }
                 }
 
@@ -246,7 +236,7 @@ async function connectToWhatsApp() {
 
                     if (isCustomTargetMatched) {
                         const randomEmoji = config.customEmojis[Math.floor(Math.random() * config.customEmojis.length)];
-                        await safeReact(from, randomEmoji, msg.key);
+                        safeReact(from, randomEmoji, msg.key);
                     }
                 }
             }
@@ -429,7 +419,7 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .admin හෝ .promote Command එක
+            // .admin / .promote Command
             if (command === 'admin' || command === 'promote') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
@@ -479,11 +469,11 @@ async function connectToWhatsApp() {
 
                 } catch (error) {
                     console.error('Promote Error:', error);
-                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකයට Admin බලතල ලබා දීමට අපොහොසත් විය. එම අංකය Group එකේ සිටීදැයි පරීක්ෂා කරන්න.' }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකයට Admin බලතල ලබා දීමට අපොහොසත් විය.' }, { quoted: msg });
                 }
             }
 
-            // .kick Command එක
+            // .kick Command
             if (command === 'kick') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
@@ -523,7 +513,7 @@ async function connectToWhatsApp() {
 
                     if (!numberToKick) {
                         return await sock.sendMessage(from, { 
-                            text: `❌ කරුණාකර ඉවත් කිරීමට අවශ්‍ය අංකය ඇතුළත් කරන්න, Tag කරන්න, නැතහොත් අදාළ කෙනාගේ Message එකකට Reply කරන්න.\n\nඋදා:\n• ${config.currentPrefix}kick 94764802314\n• ${config.currentPrefix}kick @user\n• Reply සපයා ${config.currentPrefix}kick යවන්න` 
+                            text: `❌ කරුණාකර ඉවත් කිරීමට අවශ්‍ය අංකය ඇතුළත් කරන්න, Tag කරන්න, නැතහොත් Message එකකට Reply කරන්න.` 
                         }, { quoted: msg });
                     }
 
@@ -533,11 +523,11 @@ async function connectToWhatsApp() {
 
                 } catch (error) {
                     console.error('Kick Error:', error);
-                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකය ඉවත් කිරීමට අපොහොසත් විය. අංකය නිවැරදිදැයි පරීක්ෂා කරන්න.' }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකය ඉවත් කිරීමට අපොහොසත් විය.' }, { quoted: msg });
                 }
             }
 
-            // .add Command එක
+            // .add Command
             if (command === 'add') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
@@ -584,7 +574,7 @@ async function connectToWhatsApp() {
 
                     if (response[0]?.status === '408' || response[0]?.status === '403') {
                         return await sock.sendMessage(from, { 
-                            text: `⚠️ +${addedNum} හිමිකරුගේ Privacy Settings නිසා කෙලින්ම Add කිරීමට නොහැක. කරුණාකර Invite Link එකක් යවන්න.` 
+                            text: `⚠️ +${addedNum} හිමිකරුගේ Privacy Settings නිසා කෙලින්ම Add කිරීමට නොහැක.` 
                         }, { quoted: msg });
                     } else {
                         return await sock.sendMessage(from, { text: `✅ +${addedNum} සාර්ථකව Group එකට එකතු කරන ලදී.` }, { quoted: msg });
@@ -592,7 +582,7 @@ async function connectToWhatsApp() {
 
                 } catch (error) {
                     console.error('Add Error:', error);
-                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකය එකතු කිරීමට අපොහොසත් විය. අංකය නිවැරදිදැයි පරීක්ෂා කරන්න.' }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකය එකතු කිරීමට අපොහොසත් විය.' }, { quoted: msg });
                 }
             }
 
@@ -619,7 +609,7 @@ async function connectToWhatsApp() {
                 if (subCommand === 'name') {
                     const newName = args.join(' ').trim();
                     if (!newName) {
-                        return await sock.sendMessage(from, { text: `⚠️ කරුණාකර නව බොට්ගේ නම ඇතුළත් කරන්න!\nඋදාහරණ: *${config.currentPrefix}bot name MyBot-MD*` }, { quoted: msg });
+                        return await sock.sendMessage(from, { text: `⚠️ කරුණාකර නව බොට්ගේ නම ඇතුළත් කරන්න!` }, { quoted: msg });
                     }
                     config.botName = newName;
                     saveSettings();
@@ -635,8 +625,7 @@ async function connectToWhatsApp() {
 
                 const inputData = args.join(' ').trim();
                 if (!inputData) {
-                    const helpText = `⚠️ කරුණාකර ${config.currentPrefix}apply <GitHub Token / Link / Repo Name> ලෙස යවන්න!`;
-                    return await sock.sendMessage(from, { text: helpText }, { quoted: msg });
+                    return await sock.sendMessage(from, { text: `⚠️ කරුණාකර ${config.currentPrefix}apply <GitHub Token / Link / Repo Name> ලෙස යවන්න!` }, { quoted: msg });
                 }
 
                 if (inputData.startsWith('ghp_') || inputData.includes('github.com')) {
