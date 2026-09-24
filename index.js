@@ -4,7 +4,8 @@ const {
     DisconnectReason, 
     fetchLatestBaileysVersion, 
     downloadContentFromMessage,
-    makeInMemoryStore
+    makeInMemoryStore,
+    Browsers
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
@@ -105,16 +106,17 @@ async function connectToWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ["Mac OS", "Chrome", "10.15.7"],
+        browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Decryption Fix Configuration
+        // Decryption & 428 Connection Fix Settings
         syncFullHistory: true,
         markOnlineOnConnect: true,
-        
         connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000,
+        retryRequestDelayMs: 2500,
+
         getMessage: async (key) => {
             if (store) {
                 try {
@@ -130,27 +132,24 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Pairing Code Generation Logic
-    if (!sock.authState.creds.registered && !isPairingRequested) {
-        isPairingRequested = true;
-        setTimeout(async () => {
-            try {
-                let code = await sock.requestPairingCode(PHONE_NUMBER);
-                code = code?.match(/.{1,4}/g)?.join("-") || code;
-                console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
-            } catch (error) {
-                console.log("Pairing Code Generation Error. Retrying...", error?.message || error);
-                isPairingRequested = false;
-            }
-        }, 5000);
-    }
-
-    sock.ev.on('creds.update', saveCreds);
-
-    // Connection Handler
+    // Connection & Pairing Code Handler Fix (Prevents 428 Error)
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
-        
+
+        if (!sock.authState.creds.registered && !isPairingRequested) {
+            isPairingRequested = true;
+            setTimeout(async () => {
+                try {
+                    let code = await sock.requestPairingCode(PHONE_NUMBER);
+                    code = code?.match(/.{1,4}/g)?.join("-") || code;
+                    console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
+                } catch (error) {
+                    console.log("Pairing Code Generation Error. Retrying...", error?.message || error);
+                    isPairingRequested = false;
+                }
+            }, 6000);
+        }
+
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             isPairingRequested = false;
@@ -158,7 +157,7 @@ async function connectToWhatsApp() {
             console.log(`⚠️ Connection closed with status code: ${statusCode}. Reconnecting...`);
 
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                console.log("Session cleared/unlinked. Reconnecting cleanly...");
+                console.log("Session unlinked or reset. Reconnecting...");
                 setTimeout(() => connectToWhatsApp(), 3000);
             } else {
                 setTimeout(() => connectToWhatsApp(), 3000);
@@ -174,6 +173,8 @@ async function connectToWhatsApp() {
             } catch (e) {}
         }
     });
+
+    sock.ev.on('creds.update', saveCreds);
 
     // Safe Async React Helper
     async function safeReact(from, emoji, key) {
