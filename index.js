@@ -11,7 +11,7 @@ const {
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 
 // Restart වීම් හා Server Crash වීම් සම්පූර්ණයෙන්ම වළක්වන Global Error Handlers
 process.on('uncaughtException', (err) => {
@@ -106,7 +106,6 @@ async function connectToWhatsApp() {
 
     sock = makeWASocket({
         version,
-        // Session Key Loss හා "Waiting for this message" වැළැක්වීමට Cacheable Store එකක් භාවිතය
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -160,16 +159,15 @@ async function connectToWhatsApp() {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             isPairingRequested = false;
             
-            console.log(`⚠️ Connection closed with status code: ${statusCode}. Auto Reconnecting...`);
+            console.log(`⚠️ Connection closed with status code: ${statusCode}. Reconnecting...`);
             
-            // Logged Out නොවන ඕනෑම අවස්ථාවක සාර්ථකව Reconnect කිරීම
             if (statusCode !== DisconnectReason.loggedOut) {
                 setTimeout(() => connectToWhatsApp(), 3000);
             } else {
-                console.log("Session Logged Out. Please clear session folder and restart.");
+                console.log("Session Logged Out. Please clear auth folder and restart.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect & Decryption Ready)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect System Active)`);
             isPairingRequested = false;
 
             try {
@@ -195,7 +193,6 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Decrypt නොවූ හෝ හිස් Messages Bypass කිරීම
             if (!msg.message || Object.keys(msg.message).length === 0) return;
 
             const msgId = msg.key.id;
@@ -722,14 +719,23 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: `🏓 *Pong!* Speed: *${end - start}ms*` }, { quoted: msg });
             }
 
-            // Update Command
+            // Update Command Fix (Restart Auto Launcher)
             else if (command === 'update') {
                 if (!isOwner) return;
                 await sock.sendMessage(from, { text: `🔄 Updating from GitHub...` }, { quoted: msg });
                 exec('git pull', async (error, stdout) => {
                     if (error) return await sock.sendMessage(from, { text: `❌ Update Failed: ${error.message}` }, { quoted: msg });
-                    await sock.sendMessage(from, { text: `✅ Updated:\n\`\`\`${stdout}\`\`\`\nRestarting...` }, { quoted: msg });
-                    setTimeout(() => process.exit(0), 2000);
+                    await sock.sendMessage(from, { text: `✅ Updated:\n\`\`\`${stdout}\`\`\`\nRestarting Bot Process...` }, { quoted: msg });
+                    
+                    // Auto Restart Process Logic
+                    setTimeout(() => {
+                        const child = spawn(process.argv[0], process.argv.slice(1), {
+                            detached: true,
+                            stdio: 'inherit'
+                        });
+                        child.unref();
+                        process.exit(0);
+                    }, 2000);
                 });
             }
 
