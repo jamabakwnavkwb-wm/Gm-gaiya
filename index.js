@@ -12,10 +12,9 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { exec, spawn } = require('child_process');
-const NodeCache = require('node-cache');
 
-// Decryption Key Retry Cache (Waiting for message fix)
-const msgRetryCounterCache = new NodeCache();
+// Built-in Retry Counter Cache (node-cache නොමැතිව)
+const msgRetryCounterCache = new Map();
 
 // Global Error Handlers
 process.on('uncaughtException', (err) => {
@@ -119,7 +118,7 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Desktop"),
         generateHighQualityLinkPreview: true,
         
-        // E2EE Decryption Sync Settings Fix
+        // E2EE Decryption Sync Settings
         syncFullHistory: true,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
@@ -173,7 +172,7 @@ async function connectToWhatsApp() {
                 console.log("Session Logged Out. Please clear auth folder and restart.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Session Sync Active)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය!`);
             isPairingRequested = false;
 
             try {
@@ -725,7 +724,7 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: `🏓 *Pong!* Speed: *${end - start}ms*` }, { quoted: msg });
             }
 
-            // Update Command Fix (Restart Auto Launcher)
+            // Update Command Fix
             else if (command === 'update') {
                 if (!isOwner) return;
                 await sock.sendMessage(from, { text: `🔄 Updating from GitHub...` }, { quoted: msg });
