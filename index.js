@@ -12,9 +12,10 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { exec, spawn } = require('child_process');
+const NodeCache = require('node-cache');
 
-// Built-in Retry Counter Cache (node-cache නොමැතිව)
-const msgRetryCounterCache = new Map();
+// Decryption Key Retry Cache
+const msgRetryCounterCache = new NodeCache();
 
 // Global Error Handlers
 process.on('uncaughtException', (err) => {
@@ -25,7 +26,10 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection:', reason?.message || reason);
 });
 
-const PHONE_NUMBER = (process.env.PHONE_NUMBER || "94764802314").replace(/[^0-9]/g, '');
+// Dynamic Phone Number Capture Fix
+const rawPhoneNumber = process.env.PHONE_NUMBER || "94764802314";
+const PHONE_NUMBER = rawPhoneNumber.replace(/[^0-9]/g, '');
+
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 
@@ -115,7 +119,7 @@ async function connectToWhatsApp() {
         },
         printQRInTerminal: false,
         logger,
-        browser: Browsers.ubuntu("Desktop"),
+        browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
         // E2EE Decryption Sync Settings
@@ -142,22 +146,23 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Connection & Auto-Reconnect Logic
+    // Connection & Valid Pairing Code Generation Logic
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
 
         if (!sock.authState.creds.registered && !isPairingRequested) {
             isPairingRequested = true;
             setTimeout(async () => {
                 try {
+                    console.log(`\n⏳ Requesting Pairing Code for phone number: +${PHONE_NUMBER}...`);
                     let code = await sock.requestPairingCode(PHONE_NUMBER);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
+                    console.log(`\n=================================\n🔑 YOUR VALID PAIRING CODE: ${code}\n=================================\n`);
                 } catch (error) {
-                    console.log("Pairing Code Generation Error. Retrying...", error?.message || error);
+                    console.log("⚠️ Pairing Code Generation Error. Retrying in 5 seconds...", error?.message || error);
                     isPairingRequested = false;
                 }
-            }, 5000);
+            }, 6000);
         }
 
         if (connection === 'close') {
@@ -172,7 +177,7 @@ async function connectToWhatsApp() {
                 console.log("Session Logged Out. Please clear auth folder and restart.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය!`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Session Sync Active)`);
             isPairingRequested = false;
 
             try {
