@@ -58,7 +58,7 @@ try {
 let config = {
     botName: 'GM GAIYA - MD',
     botPresence: 'available',
-    currentPrefix: '!',
+    currentPrefix: ':',
     workMode: 'private', 
     
     // Owner Auto React Settings
@@ -138,6 +138,7 @@ async function connectToWhatsApp() {
         retryRequestDelayMs: 2000,
         msgRetryCounterCache,
 
+        // Fixes "Bot Connected" automatic message issue
         getMessage: async (key) => {
             if (store) {
                 try {
@@ -147,7 +148,7 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return { conversation: 'Bot Connected' };
+            return undefined;
         }
     });
 
@@ -439,7 +440,7 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .admin / .promote Command
+            // .admin / .promote Command (FIXED)
             if (command === 'admin' || command === 'promote') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
@@ -449,7 +450,7 @@ async function connectToWhatsApp() {
                     const groupMetadata = await sock.groupMetadata(from);
                     const groupParticipants = groupMetadata.participants;
 
-                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid);
+                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid || p.id.split('@')[0] === senderJid.split('@')[0]);
                     const isSenderAdmin = senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin';
 
                     if (!isSenderAdmin && !isOwner) {
@@ -457,7 +458,7 @@ async function connectToWhatsApp() {
                     }
 
                     const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                    const botParticipant = groupParticipants.find((p) => p.id === botNumber);
+                    const botParticipant = groupParticipants.find((p) => p.id === botNumber || p.id.split('@')[0] === botNumber.split('@')[0]);
                     const isBotAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
 
                     if (!isBotAdmin) {
@@ -493,7 +494,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // .kick Command
+            // .kick Command (FIXED)
             if (command === 'kick') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
@@ -503,7 +504,7 @@ async function connectToWhatsApp() {
                     const groupMetadata = await sock.groupMetadata(from);
                     const groupParticipants = groupMetadata.participants;
 
-                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid);
+                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid || p.id.split('@')[0] === senderJid.split('@')[0]);
                     const isSenderAdmin = senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin';
 
                     if (!isSenderAdmin && !isOwner) {
@@ -511,7 +512,7 @@ async function connectToWhatsApp() {
                     }
 
                     const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                    const botParticipant = groupParticipants.find((p) => p.id === botNumber);
+                    const botParticipant = groupParticipants.find((p) => p.id === botNumber || p.id.split('@')[0] === botNumber.split('@')[0]);
                     const isBotAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
 
                     if (!isBotAdmin) {
@@ -547,7 +548,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // .add Command
+            // .add Command (FIXED)
             if (command === 'add') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
@@ -557,7 +558,7 @@ async function connectToWhatsApp() {
                     const groupMetadata = await sock.groupMetadata(from);
                     const groupParticipants = groupMetadata.participants;
 
-                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid);
+                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid || p.id.split('@')[0] === senderJid.split('@')[0]);
                     const isSenderAdmin = senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin';
 
                     if (!isSenderAdmin && !isOwner) {
@@ -565,7 +566,7 @@ async function connectToWhatsApp() {
                     }
 
                     const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                    const botParticipant = groupParticipants.find((p) => p.id === botNumber);
+                    const botParticipant = groupParticipants.find((p) => p.id === botNumber || p.id.split('@')[0] === botNumber.split('@')[0]);
                     const isBotAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
 
                     if (!isBotAdmin) {
