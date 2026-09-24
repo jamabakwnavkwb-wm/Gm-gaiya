@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
-// Unhandled Errors නිසා Server / Bot Crash වීම වැළැක්වීම
+// Restart වීම් හා Server Crash වීම් සම්පූර්ණයෙන්ම වළක්වන Global Error Handlers
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err?.message || err);
 });
@@ -26,7 +26,7 @@ const PHONE_NUMBER = (process.env.PHONE_NUMBER || "94764802314").replace(/[^0-9]
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 
-// InMemoryStore Optimization
+// InMemoryStore
 let store;
 try {
     store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
@@ -89,6 +89,7 @@ loadSettings();
 const processedMessages = new Set();
 const userState = new Map();
 let isPairingRequested = false;
+let sock = null;
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -103,9 +104,9 @@ async function connectToWhatsApp() {
 
     const logger = pino({ level: 'silent' });
 
-    const sock = makeWASocket({
+    sock = makeWASocket({
         version,
-        // E2E Message Encryption & Session Key caching optimization (Fixes "Waiting for this message")
+        // Session Key Loss හා "Waiting for this message" වැළැක්වීමට Cacheable Store එකක් භාවිතය
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -115,12 +116,11 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Fast performance & Reconnection Settings
         syncFullHistory: false,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 15000,
+        keepAliveIntervalMs: 10000,
         retryRequestDelayMs: 2000,
 
         getMessage: async (key) => {
@@ -132,13 +132,13 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return undefined;
+            return { conversation: 'Bot Connected' };
         }
     });
 
     if (store) store.bind(sock.ev);
 
-    // Connection Handler
+    // Connection & Auto-Reconnect Logic Fix
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -160,10 +160,16 @@ async function connectToWhatsApp() {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             isPairingRequested = false;
             
-            console.log(`⚠️ Connection closed with status code: ${statusCode}. Reconnecting...`);
-            setTimeout(() => connectToWhatsApp(), 3000);
+            console.log(`⚠️ Connection closed with status code: ${statusCode}. Auto Reconnecting...`);
+            
+            // Logged Out නොවන ඕනෑම අවස්ථාවක සාර්ථකව Reconnect කිරීම
+            if (statusCode !== DisconnectReason.loggedOut) {
+                setTimeout(() => connectToWhatsApp(), 3000);
+            } else {
+                console.log("Session Logged Out. Please clear session folder and restart.");
+            }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect Active)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect & Decryption Ready)`);
             isPairingRequested = false;
 
             try {
@@ -176,9 +182,9 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Instant Reaction Handler
+    // Safe React Function
     function safeReact(from, emoji, key) {
-        if (!emoji || !key) return;
+        if (!emoji || !key || !sock) return;
         sock.sendMessage(from, { react: { text: emoji, key: key } }).catch(() => {});
     }
 
@@ -189,7 +195,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Decryption Pending / Empty Messages Skip
+            // Decrypt නොවූ හෝ හිස් Messages Bypass කිරීම
             if (!msg.message || Object.keys(msg.message).length === 0) return;
 
             const msgId = msg.key.id;
@@ -210,7 +216,7 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            // Owner Instant Auto React
+            // Owner Auto React
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
                 safeReact(from, config.ownerReactEmoji, msg.key);
             }
