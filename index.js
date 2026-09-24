@@ -108,9 +108,10 @@ async function connectToWhatsApp() {
         browser: ["Mac OS", "Chrome", "10.15.7"],
         generateHighQualityLinkPreview: true,
         
+        // Placeholder Sync වැළැක්වීම
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        markOnlineOnConnect: true,
+        markOnlineOnConnect: false,
         
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
@@ -121,10 +122,10 @@ async function connectToWhatsApp() {
                     const msg = await store.loadMessage(key.remoteJid, key.id);
                     return msg?.message || undefined;
                 } catch (e) {
-                    return { conversation: '' };
+                    return undefined;
                 }
             }
-            return { conversation: '' };
+            return undefined;
         }
     });
 
@@ -168,19 +169,19 @@ async function connectToWhatsApp() {
             isPairingRequested = false;
 
             try {
-                await sock.sendPresenceUpdate(config.botPresence);
+                if (config.botPresence === 'available') {
+                    await sock.sendPresenceUpdate(config.botPresence);
+                }
             } catch (e) {}
         }
     });
 
-    // Safe Async Safe React Helper Function
+    // Safe Async React Helper
     async function safeReact(from, emoji, key) {
         if (!emoji || !key) return;
         try {
             await sock.sendMessage(from, { react: { text: emoji, key: key } });
-        } catch (e) {
-            // Group Error, Permission Issue, or Timeout bypass
-        }
+        } catch (e) {}
     }
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -190,19 +191,23 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Group event/Stub message / Admin Settings change / Left / Join ignore කිරීම
+            // System / Stub / Protocol messages ignore කිරීම
             if (msg.messageStubType || msg.stubType) return;
 
+            // Message content නොමැති Placeholder Ignore කිරීම
             if (!msg.message || Object.keys(msg.message).length === 0) return;
 
-            // Reaction messages bypass
+            // Protocol messages ignore කිරීම
+            if (msg.message.protocolMessage || msg.message.senderKeyDistributionMessage) return;
+
+            // Reaction messages ignore කිරීම
             if (msg.message.reactionMessage) return;
 
-            // Delay වළක්වන Time Check (තත්පර 90කට වඩා පැරණි නම් bypass)
+            // Delay වූ හෝ පැරණි Messages Bypass කිරීම
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const msgTime = msg.messageTimestamp ? (typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : msg.messageTimestamp.low) : 0;
             
-            if (msgTime && (currentTimestamp - msgTime > 90)) {
+            if (msgTime && (currentTimestamp - msgTime > 60)) {
                 return; 
             }
 
@@ -210,7 +215,6 @@ async function connectToWhatsApp() {
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
             
-            // Garbage Collection for Processed Memory
             if (processedMessages.size > 1000) {
                 processedMessages.clear();
             } else {
@@ -434,6 +438,173 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
+            // .admin හෝ .promote Command එක
+            if (command === 'admin' || command === 'promote') {
+                if (!isGroup) {
+                    return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
+                }
+
+                try {
+                    const groupMetadata = await sock.groupMetadata(from);
+                    const groupParticipants = groupMetadata.participants;
+
+                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid);
+                    const isSenderAdmin = senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin';
+
+                    if (!isSenderAdmin && !isOwner) {
+                        return await sock.sendMessage(from, { text: '❌ ඔබට මෙම Command එක භාවිත කිරීමට Group Admin බලතල නැත.' }, { quoted: msg });
+                    }
+
+                    const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                    const botParticipant = groupParticipants.find((p) => p.id === botNumber);
+                    const isBotAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
+
+                    if (!isBotAdmin) {
+                        return await sock.sendMessage(from, { text: '❌ මෙම ක්‍රියාව සිදුකිරීමට මට (Bot) Admin බලතල ලබා දෙන්න.' }, { quoted: msg });
+                    }
+
+                    let numberToPromote;
+
+                    if (args[0]) {
+                        let cleanedNum = args[0].replace(/[^0-9]/g, '');
+                        if (cleanedNum) {
+                            numberToPromote = cleanedNum + '@s.whatsapp.net';
+                        }
+                    } else if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) {
+                        numberToPromote = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
+                    } else if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
+                        numberToPromote = msg.message.extendedTextMessage.contextInfo.participant;
+                    }
+
+                    if (!numberToPromote) {
+                        return await sock.sendMessage(from, { 
+                            text: `❌ කරුණාකර Admin බලතල දිය යුතු අංකය ඇතුළත් කරන්න, Tag කරන්න, නැතහොත් Message එකකට Reply කරන්න.\n\nඋදා: ${config.currentPrefix}admin 94764802314` 
+                        }, { quoted: msg });
+                    }
+
+                    await sock.groupParticipantsUpdate(from, [numberToPromote], 'promote');
+                    const promotedNum = numberToPromote.split('@')[0];
+                    return await sock.sendMessage(from, { text: `✅ +${promotedNum} සාර්ථකව Group Admin ලෙස පත් කරන ලදී.` }, { quoted: msg });
+
+                } catch (error) {
+                    console.error('Promote Error:', error);
+                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකයට Admin බලතල ලබා දීමට අපොහොසත් විය. එම අංකය Group එකේ සිටීදැයි පරීක්ෂා කරන්න.' }, { quoted: msg });
+                }
+            }
+
+            // .kick Command එක
+            if (command === 'kick') {
+                if (!isGroup) {
+                    return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
+                }
+
+                try {
+                    const groupMetadata = await sock.groupMetadata(from);
+                    const groupParticipants = groupMetadata.participants;
+
+                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid);
+                    const isSenderAdmin = senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin';
+
+                    if (!isSenderAdmin && !isOwner) {
+                        return await sock.sendMessage(from, { text: '❌ ඔබට මෙම Command එක භාවිත කිරීමට Group Admin බලතල නැත.' }, { quoted: msg });
+                    }
+
+                    const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                    const botParticipant = groupParticipants.find((p) => p.id === botNumber);
+                    const isBotAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
+
+                    if (!isBotAdmin) {
+                        return await sock.sendMessage(from, { text: '❌ මෙම ක්‍රියාව සිදුකිරීමට මට (Bot) Admin බලතල ලබා දෙන්න.' }, { quoted: msg });
+                    }
+
+                    let numberToKick;
+
+                    if (args[0]) {
+                        let cleanedNum = args[0].replace(/[^0-9]/g, '');
+                        if (cleanedNum) {
+                            numberToKick = cleanedNum + '@s.whatsapp.net';
+                        }
+                    } else if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) {
+                        numberToKick = msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
+                    } else if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
+                        numberToKick = msg.message.extendedTextMessage.contextInfo.participant;
+                    }
+
+                    if (!numberToKick) {
+                        return await sock.sendMessage(from, { 
+                            text: `❌ කරුණාකර ඉවත් කිරීමට අවශ්‍ය අංකය ඇතුළත් කරන්න, Tag කරන්න, නැතහොත් අදාළ කෙනාගේ Message එකකට Reply කරන්න.\n\nඋදා:\n• ${config.currentPrefix}kick 94764802314\n• ${config.currentPrefix}kick @user\n• Reply සපයා ${config.currentPrefix}kick යවන්න` 
+                        }, { quoted: msg });
+                    }
+
+                    await sock.groupParticipantsUpdate(from, [numberToKick], 'remove');
+                    const kickedNum = numberToKick.split('@')[0];
+                    return await sock.sendMessage(from, { text: `✅ +${kickedNum} සාර්ථකව Group එකෙන් ඉවත් කරන ලදී.` }, { quoted: msg });
+
+                } catch (error) {
+                    console.error('Kick Error:', error);
+                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකය ඉවත් කිරීමට අපොහොසත් විය. අංකය නිවැරදිදැයි පරීක්ෂා කරන්න.' }, { quoted: msg });
+                }
+            }
+
+            // .add Command එක
+            if (command === 'add') {
+                if (!isGroup) {
+                    return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
+                }
+
+                try {
+                    const groupMetadata = await sock.groupMetadata(from);
+                    const groupParticipants = groupMetadata.participants;
+
+                    const senderParticipant = groupParticipants.find((p) => p.id === senderJid);
+                    const isSenderAdmin = senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin';
+
+                    if (!isSenderAdmin && !isOwner) {
+                        return await sock.sendMessage(from, { text: '❌ ඔබට මෙම Command එක භාවිත කිරීමට Admin බලතල නැත.' }, { quoted: msg });
+                    }
+
+                    const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                    const botParticipant = groupParticipants.find((p) => p.id === botNumber);
+                    const isBotAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
+
+                    if (!isBotAdmin) {
+                        return await sock.sendMessage(from, { text: '❌ මෙම ක්‍රියාව සිදුකිරීමට මට (Bot) Admin බලතල ලබා දෙන්න.' }, { quoted: msg });
+                    }
+
+                    let numberToAdd;
+
+                    if (args[0]) {
+                        let cleanedNum = args[0].replace(/[^0-9]/g, '');
+                        if (cleanedNum) {
+                            numberToAdd = cleanedNum + '@s.whatsapp.net';
+                        }
+                    } else if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
+                        numberToAdd = msg.message.extendedTextMessage.contextInfo.participant;
+                    }
+
+                    if (!numberToAdd) {
+                        return await sock.sendMessage(from, { 
+                            text: `❌ කරුණාකර ඇඩ් කිරීමට අවශ්‍ය අංකය ඇතුළත් කරන්න.\n\nඋදා: ${config.currentPrefix}add 94764802314` 
+                        }, { quoted: msg });
+                    }
+
+                    const response = await sock.groupParticipantsUpdate(from, [numberToAdd], 'add');
+                    const addedNum = numberToAdd.split('@')[0];
+
+                    if (response[0]?.status === '408' || response[0]?.status === '403') {
+                        return await sock.sendMessage(from, { 
+                            text: `⚠️ +${addedNum} හිමිකරුගේ Privacy Settings නිසා කෙලින්ම Add කිරීමට නොහැක. කරුණාකර Invite Link එකක් යවන්න.` 
+                        }, { quoted: msg });
+                    } else {
+                        return await sock.sendMessage(from, { text: `✅ +${addedNum} සාර්ථකව Group එකට එකතු කරන ලදී.` }, { quoted: msg });
+                    }
+
+                } catch (error) {
+                    console.error('Add Error:', error);
+                    return await sock.sendMessage(from, { text: '❌ අදාළ අංකය එකතු කිරීමට අපොහොසත් විය. අංකය නිවැරදිදැයි පරීක්ෂා කරන්න.' }, { quoted: msg });
+                }
+            }
+
             // .info Command
             if (command === 'info') {
                 if (!isGroup) {
@@ -544,6 +715,9 @@ async function connectToWhatsApp() {
                                  `│ 📜 *${config.currentPrefix}menu* - Display Menu\n` +
                                  `│ 🏓 *${config.currentPrefix}ping* - Speed Test\n` +
                                  `│ 📋 *${config.currentPrefix}info* - Get Group Description\n` +
+                                 `│ 👑 *${config.currentPrefix}admin* / *${config.currentPrefix}promote* - Promote Group Member\n` +
+                                 `│ 🚫 *${config.currentPrefix}kick* - Remove Member from Group\n` +
+                                 `│ ➕ *${config.currentPrefix}add* - Add Member to Group\n` +
                                  `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings (Owner Only)\n` +
                                  `│ 🤖 *${config.currentPrefix}bot name <name>* - Change Bot Name\n` +
                                  `│ 🔑 *${config.currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
