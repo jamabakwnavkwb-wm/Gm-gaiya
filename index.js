@@ -12,8 +12,12 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const { exec, spawn } = require('child_process');
+const NodeCache = require('node-cache');
 
-// Restart වීම් හා Server Crash වීම් සම්පූර්ණයෙන්ම වළක්වන Global Error Handlers
+// Decryption Key Retry Cache (Waiting for message fix)
+const msgRetryCounterCache = new NodeCache();
+
+// Global Error Handlers
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err?.message || err);
 });
@@ -112,15 +116,17 @@ async function connectToWhatsApp() {
         },
         printQRInTerminal: false,
         logger,
-        browser: Browsers.ubuntu("Chrome"),
+        browser: Browsers.ubuntu("Desktop"),
         generateHighQualityLinkPreview: true,
         
-        syncFullHistory: false,
+        // E2EE Decryption Sync Settings Fix
+        syncFullHistory: true,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000,
         retryRequestDelayMs: 2000,
+        msgRetryCounterCache,
 
         getMessage: async (key) => {
             if (store) {
@@ -137,7 +143,7 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Connection & Auto-Reconnect Logic Fix
+    // Connection & Auto-Reconnect Logic
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -167,7 +173,7 @@ async function connectToWhatsApp() {
                 console.log("Session Logged Out. Please clear auth folder and restart.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Auto Reconnect System Active)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Session Sync Active)`);
             isPairingRequested = false;
 
             try {
@@ -727,7 +733,6 @@ async function connectToWhatsApp() {
                     if (error) return await sock.sendMessage(from, { text: `❌ Update Failed: ${error.message}` }, { quoted: msg });
                     await sock.sendMessage(from, { text: `✅ Updated:\n\`\`\`${stdout}\`\`\`\nRestarting Bot Process...` }, { quoted: msg });
                     
-                    // Auto Restart Process Logic
                     setTimeout(() => {
                         const child = spawn(process.argv[0], process.argv.slice(1), {
                             detached: true,
