@@ -73,7 +73,7 @@ let config = {
     
     // Owner Auto React Settings (Multiple Emojis array for rotating reaction)
     ownerAutoReactEnabled: true,
-    ownerReactEmojis: ['👑', '❤️'], // මාරුවෙන් මාරුවට වැටෙන ඉමොජි
+    ownerReactEmojis: ['👑', '❤️'],
 
     // Others Auto React Configurations
     autoReactEnabled: true,
@@ -149,10 +149,10 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Anti "Waiting for this message" & Arrow Fixes
+        // Anti "Waiting for this message" & Arrow Fixes for Inbox & Groups
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false, // Disables self-event looping (Fixes Arrow Bug)
+        emitOwnEvents: false, // Prevents self-event loop errors
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -266,7 +266,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Ignore system/protocol messages and reactions
+            // Ignore protocol/system messages & reaction messages
             if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage) return;
 
             const msgId = msg.key.id;
@@ -282,13 +282,26 @@ async function connectToWhatsApp() {
             const from = msg.key.remoteJid;
             if (!from) return;
 
-            const isGroup = from.endsWith('@g.us');
+            // Stop Bot from responding or reacting to its OWN output messages (Fixes "Waiting for message" Arrow Loop)
+            const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : `${PHONE_NUMBER}@s.whatsapp.net`;
             const senderJid = msg.key.participant || msg.key.remoteJid || '';
             const senderNumber = senderJid.split('@')[0].split(':')[0];
+            
+            const isGroup = from.endsWith('@g.us');
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            // Owner Auto React Logic (Rotates alternatingly between emojis)
+            // Extract text message content
+            const textMessage = (
+                msg.message.conversation ||
+                msg.message.extendedTextMessage?.text ||
+                msg.message.imageMessage?.caption ||
+                msg.message.videoMessage?.caption ||
+                ''
+            ).trim();
+
+            // Owner Auto React Logic (Only for Owner's actual sent messages)
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
+                // If text starts with bot prefix or is an automated bot response, don't react to self-loops
                 const currentOwnerEmoji = config.ownerReactEmojis[ownerEmojiIndex % config.ownerReactEmojis.length];
                 ownerEmojiIndex++;
                 await safeReact(from, currentOwnerEmoji, msg.key);
@@ -320,14 +333,6 @@ async function connectToWhatsApp() {
                     }
                 }
             }
-
-            const textMessage = (
-                msg.message.conversation ||
-                msg.message.extendedTextMessage?.text ||
-                msg.message.imageMessage?.caption ||
-                msg.message.videoMessage?.caption ||
-                ''
-            ).trim();
 
             if (!textMessage) return;
 
