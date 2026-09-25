@@ -23,7 +23,7 @@ http.createServer((req, res) => {
     console.log(`🌐 Server running on port ${PORT}`);
 });
 
-// Safe NodeCache Module Requirement (Fixes MODULE_NOT_FOUND error)
+// Safe NodeCache Module Requirement
 let NodeCache;
 let msgRetryCounterCache;
 try {
@@ -71,9 +71,9 @@ let config = {
     currentPrefix: ':',
     workMode: 'private', 
     
-    // Owner Auto React Settings
+    // Owner Auto React Settings (Multiple Emojis array for rotating reaction)
     ownerAutoReactEnabled: true,
-    ownerReactEmoji: '👑',
+    ownerReactEmojis: ['👑', '❤️'], // මාරුවෙන් මාරුවට වැටෙන ඉමොජි
 
     // Others Auto React Configurations
     autoReactEnabled: true,
@@ -93,7 +93,14 @@ function loadSettings() {
     if (fs.existsSync(SETTINGS_FILE)) {
         try {
             const data = fs.readFileSync(SETTINGS_FILE, 'utf8');
-            config = { ...config, ...JSON.parse(data) };
+            const loadedData = JSON.parse(data);
+            
+            // Backward compatibility for ownerReactEmoji
+            if (loadedData.ownerReactEmoji && !loadedData.ownerReactEmojis) {
+                loadedData.ownerReactEmojis = loadedData.ownerReactEmoji.split(',').map(e => e.trim());
+            }
+            
+            config = { ...config, ...loadedData };
         } catch (e) {
             console.error("Settings load error:", e);
         }
@@ -114,6 +121,9 @@ const processedMessages = new Set();
 const userState = new Map();
 let isPairingRequested = false;
 let sock = null;
+
+// Track owner emoji rotation index
+let ownerEmojiIndex = 0;
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -142,7 +152,7 @@ async function connectToWhatsApp() {
         // Anti "Waiting for this message" & Arrow Fixes
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false, // Disables self-event looping
+        emitOwnEvents: false, // Disables self-event looping (Fixes Arrow Bug)
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -165,7 +175,7 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Auto Restart Logic every 6 hours with Inbox Notification
+    // Auto Restart Logic every 6 hours
     setTimeout(() => {
         const SIX_HOURS = 6 * 60 * 60 * 1000;
         setInterval(async () => {
@@ -234,7 +244,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Fixed Safe React Function (Sends genuine Reaction payload)
+    // Safe React Function
     async function safeReact(from, emoji, key) {
         if (!emoji || !key || !sock) return;
         try {
@@ -256,7 +266,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Ignore system/protocol messages and reactions themselves
+            // Ignore system/protocol messages and reactions
             if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage) return;
 
             const msgId = msg.key.id;
@@ -277,9 +287,11 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            // Owner Auto React
-            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
-                await safeReact(from, config.ownerReactEmoji, msg.key);
+            // Owner Auto React Logic (Rotates alternatingly between emojis)
+            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
+                const currentOwnerEmoji = config.ownerReactEmojis[ownerEmojiIndex % config.ownerReactEmojis.length];
+                ownerEmojiIndex++;
+                await safeReact(from, currentOwnerEmoji, msg.key);
             }
 
             // Others Auto React & Custom React Logic
@@ -291,7 +303,8 @@ async function connectToWhatsApp() {
                         (config.autoReactTarget === 'inbox' && !isGroup);
 
                     if (isTargetMatched) {
-                        await safeReact(from, config.ownerReactEmoji, msg.key);
+                        const fallbackEmoji = config.ownerReactEmojis[0] || '👑';
+                        await safeReact(from, fallbackEmoji, msg.key);
                     }
                 }
 
@@ -372,7 +385,7 @@ async function connectToWhatsApp() {
                 else if (textMessage === '4') {
                     userState.set(from, 'AWAITING_OWNER_REACT_CHOICE');
                     return await sock.sendMessage(from, { 
-                        text: `⚙️ *OWNER AUTO REACT SETTINGS*\n\nReply with option:\n*4.1* - Turn ON Owner Auto React 🟢\n*4.2* - Turn OFF Owner Auto React 🔴\n*4.3* - Change Emoji 👑` 
+                        text: `⚙️ *OWNER AUTO REACT SETTINGS*\n\nReply with option:\n*4.1* - Turn ON Owner Auto React 🟢\n*4.2* - Turn OFF Owner Auto React 🔴\n*4.3* - Change Emojis (e.g. 👑,❤️)` 
                     }, { quoted: msg });
                 }
                 else if (textMessage === '5') {
@@ -395,7 +408,6 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // Realtime Online Status Switching Logic
             if (isOwner && currentState === 'AWAITING_ONLINE_CHOICE') {
                 if (textMessage === '1.1') {
                     config.botPresence = 'available';
@@ -430,15 +442,34 @@ async function connectToWhatsApp() {
             }
 
             if (isOwner && currentState === 'AWAITING_OWNER_REACT_CHOICE') {
-                if (textMessage === '4.1') config.ownerAutoReactEnabled = true;
-                else if (textMessage === '4.2') config.ownerAutoReactEnabled = false;
-                else if (textMessage === '4.3') {
-                    userState.set(from, 'AWAITING_EMOJI');
-                    return await sock.sendMessage(from, { text: `Send the new Emoji:` }, { quoted: msg });
+                if (textMessage === '4.1') {
+                    config.ownerAutoReactEnabled = true;
+                    saveSettings();
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Owner Auto React Enabled!*` }, { quoted: msg });
                 }
-                saveSettings();
-                userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *Owner Auto React Updated!*` }, { quoted: msg });
+                else if (textMessage === '4.2') {
+                    config.ownerAutoReactEnabled = false;
+                    saveSettings();
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Owner Auto React Disabled!*` }, { quoted: msg });
+                }
+                else if (textMessage === '4.3') {
+                    userState.set(from, 'AWAITING_OWNER_EMOJIS');
+                    return await sock.sendMessage(from, { text: `Send the desired Owner Emojis separated by commas (e.g. 👑,❤️):` }, { quoted: msg });
+                }
+            }
+
+            if (isOwner && currentState === 'AWAITING_OWNER_EMOJIS') {
+                const emojiList = textMessage.split(',').map(e => e.trim()).filter(e => e.length > 0);
+                if (emojiList.length > 0) {
+                    config.ownerReactEmojis = emojiList;
+                    saveSettings();
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Owner Emojis updated to:* ${config.ownerReactEmojis.join(' ')}` }, { quoted: msg });
+                } else {
+                    return await sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again (e.g. 👑,❤️).` }, { quoted: msg });
+                }
             }
 
             if (isOwner && currentState === 'AWAITING_REACT_CHOICE') {
@@ -472,10 +503,10 @@ async function connectToWhatsApp() {
             }
 
             if (isOwner && currentState === 'AWAITING_EMOJI') {
-                config.ownerReactEmoji = textMessage.trim();
+                config.ownerReactEmojis = [textMessage.trim()];
                 saveSettings();
                 userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *Emoji updated to:* ${config.ownerReactEmoji}` }, { quoted: msg });
+                return await sock.sendMessage(from, { text: `✅ *Emoji updated to:* ${config.ownerReactEmojis.join(' ')}` }, { quoted: msg });
             }
 
             if (isOwner && currentState === 'AWAITING_CUSTOM_EMOJIS') {
@@ -750,7 +781,7 @@ async function connectToWhatsApp() {
                                      `• *Prefix:* [ ${config.currentPrefix} ]\n` +
                                      `• *Work Mode:* ${config.workMode.toUpperCase()}\n` +
                                      `• *Online Status:* ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
-                                     `• *Owner Auto React:* ${config.ownerAutoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmoji})\n` +
+                                     `• *Owner Auto React:* ${config.ownerAutoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmojis.join(', ')})\n` +
                                      `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.autoReactTarget.toUpperCase()})\n` +
                                      `• *Custom React:* ${config.customReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.customReactTarget.toUpperCase()}) -> ${config.customEmojis.join(' ')}\n` +
                                      `• *View Once:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
