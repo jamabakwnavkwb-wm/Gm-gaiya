@@ -11,7 +11,17 @@ const {
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const { exec, spawn } = require('child_process');
+
+// Dummy HTTP Server to Keep Bot Alive on Hosting Servers (KataBump / Koyeb / Render)
+const PORT = process.env.PORT || 8080;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('GM GAIYA - MD Bot is Running Successfully!\n');
+}).listen(PORT, () => {
+    console.log(`🌐 Server running on port ${PORT}`);
+});
 
 // Safe NodeCache Module Requirement (Fixes MODULE_NOT_FOUND error)
 let NodeCache;
@@ -129,8 +139,10 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // E2EE Decryption Sync Settings
-        syncFullHistory: true,
+        // Anti "Waiting for this message" & Anti Spam Fixes
+        syncFullHistory: false,
+        shouldSyncHistoryMessage: () => false,
+        emitOwnEvents: false,
         markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -138,7 +150,6 @@ async function connectToWhatsApp() {
         retryRequestDelayMs: 2000,
         msgRetryCounterCache,
 
-        // Fixes "Bot Connected" automatic message issue
         getMessage: async (key) => {
             if (store) {
                 try {
@@ -153,6 +164,33 @@ async function connectToWhatsApp() {
     });
 
     if (store) store.bind(sock.ev);
+
+    // Auto Restart Logic every 6 hours with Inbox Notification
+    setTimeout(() => {
+        const SIX_HOURS = 6 * 60 * 60 * 1000;
+        setInterval(async () => {
+            try {
+                const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
+                if (sock) {
+                    await sock.sendMessage(ownerJid, { 
+                        text: `♻️ *${config.botName} Auto-Restarting...*\n\n` +
+                              `⏰ පැය 6 කාල රාමුව අනුව බොට් සාර්ථකව Restart වෙමින් පවතී.` 
+                    }).catch(() => {});
+                }
+            } catch (err) {
+                console.error("Restart notification failed:", err);
+            }
+
+            setTimeout(() => {
+                const child = spawn(process.argv[0], process.argv.slice(1), {
+                    detached: true,
+                    stdio: 'inherit'
+                });
+                child.unref();
+                process.exit(0);
+            }, 3000);
+        }, SIX_HOURS);
+    }, 10000);
 
     // Connection & Valid Pairing Code Generation Logic
     sock.ev.on('connection.update', async (update) => {
