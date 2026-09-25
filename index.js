@@ -23,12 +23,12 @@ http.createServer((req, res) => {
     console.log(`🌐 Server running on port ${PORT}`);
 });
 
-// Safe NodeCache Module Requirement
+// Safe NodeCache Module Requirement & Retry Counter
 let NodeCache;
 let msgRetryCounterCache;
 try {
     NodeCache = require('node-cache');
-    msgRetryCounterCache = new NodeCache();
+    msgRetryCounterCache = new NodeCache({ stdTTL: 0, checkperiod: 0 });
 } catch (e) {
     msgRetryCounterCache = new Map();
 }
@@ -146,18 +146,18 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // 🔒 Absolute Fix for "Waiting for this message" & Text Spams
+        // 🔒 CRITICAL FIXES FOR "Waiting for this message" & LOOP ERRORS
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false,
+        emitOwnEvents: false, // Prevents bot handling its own emitted events in a loop
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 10000,
-        retryRequestDelayMs: 2000,
+        keepAliveIntervalMs: 25000,
+        retryRequestDelayMs: 5000,
         msgRetryCounterCache,
 
-        // Fixed GetMessage: Removed "GM GAIYA MD" dummy text fallback completely
+        // Safe Message Fetcher to stop loop & phantom messages
         getMessage: async (key) => {
             if (store) {
                 try {
@@ -167,7 +167,7 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return undefined; // Prevents sending unwanted dummy text
+            return undefined;
         }
     });
 
@@ -200,7 +200,7 @@ async function connectToWhatsApp() {
         }, SIX_HOURS);
     }, 10000);
 
-    // Connection Logic
+    // Connection Handler
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -242,7 +242,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Safe React Function with Strict Protocol Handling
+    // Safe Reaction Handler
     async function safeReact(from, emoji, key) {
         if (!emoji || !key || !sock) return;
         try {
@@ -253,7 +253,7 @@ async function connectToWhatsApp() {
                 } 
             });
         } catch (e) {
-            // Ignore reaction errors silently to prevent loop crashes
+            // Ignore reaction errors silently
         }
     }
 
@@ -264,7 +264,7 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Completely ignore protocol, system, or null message structures to fix "Waiting for message" loop
+            // Stop loops on empty, protocol, status, or key-exchange messages
             if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage || msg.message.protocolMessage) return;
 
             const msgId = msg.key.id;
@@ -278,7 +278,7 @@ async function connectToWhatsApp() {
             }
 
             const from = msg.key.remoteJid;
-            if (!from) return;
+            if (!from || from === 'status@broadcast') return;
 
             const isGroup = from.endsWith('@g.us');
             const senderJid = msg.key.participant || msg.key.remoteJid || '';
@@ -294,13 +294,11 @@ async function connectToWhatsApp() {
                 ''
             ).trim();
 
-            // Ignore Bot's Own Responses in self-chat/inbox to stop infinite loop
-            if (msg.key.fromMe && !textMessage.startsWith(config.currentPrefix)) {
-                if (!textMessage) return;
-            }
+            // Self-Chat Protection (DO NOT Auto React to Self Messages to Prevent Loop)
+            const isSelfChat = (from === `${PHONE_NUMBER}@s.whatsapp.net`) || msg.key.fromMe;
 
-            // Owner Auto React Logic Fix
-            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
+            // Owner Auto React Logic
+            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0 && !isSelfChat) {
                 const isBotGeneratedText = textMessage.includes('MAIN MENU') || 
                                            textMessage.includes('SETTINGS MENU') || 
                                            textMessage.includes('Pong!') || 
@@ -313,7 +311,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // Others Auto React & Custom React Logic
+            // Others Auto React Logic
             if (!isOwner) {
                 if (config.autoReactEnabled) {
                     const isTargetMatched = 
