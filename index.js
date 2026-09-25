@@ -14,7 +14,7 @@ const path = require('path');
 const http = require('http');
 const { exec, spawn } = require('child_process');
 
-// Dummy HTTP Server to Keep Bot Alive on Hosting Servers (KataBump / Koyeb / Render)
+// Dummy HTTP Server to Keep Bot Alive on Hosting Servers
 const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -30,7 +30,6 @@ try {
     NodeCache = require('node-cache');
     msgRetryCounterCache = new NodeCache();
 } catch (e) {
-    console.log("⚠️ node-cache package is not installed. Using fallback memory cache.");
     msgRetryCounterCache = new Map();
 }
 
@@ -67,7 +66,7 @@ try {
 // Configurations
 let config = {
     botName: 'GM GAIYA - MD',
-    botPresence: 'available', // 'available' = Online, 'unavailable' = Offline
+    botPresence: 'available', 
     currentPrefix: ':',
     workMode: 'private', 
     
@@ -77,11 +76,11 @@ let config = {
 
     // Others Auto React Configurations
     autoReactEnabled: true,
-    autoReactTarget: 'public', // 'group', 'inbox', 'public'
+    autoReactTarget: 'public', 
     
     // Custom React Configurations
     customReactEnabled: false,
-    customReactTarget: 'public', // 'group', 'inbox', 'public'
+    customReactTarget: 'public', 
     customEmojis: ['❤️', '👑', '♥️', '😑', '🤔'],
     
     viewOnceDownload: true,
@@ -147,10 +146,10 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // 🔒 Absolute Fix for "Waiting for this message" & Arrow Bugs
+        // 🔒 Absolute Fix for "Waiting for this message" & Text Spams
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false, // Prevents self-generated event loops in Inbox
+        emitOwnEvents: false,
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -158,6 +157,7 @@ async function connectToWhatsApp() {
         retryRequestDelayMs: 2000,
         msgRetryCounterCache,
 
+        // Fixed GetMessage: Removed "GM GAIYA MD" dummy text fallback completely
         getMessage: async (key) => {
             if (store) {
                 try {
@@ -167,7 +167,7 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return { conversation: 'GM GAIYA MD' };
+            return undefined; // Prevents sending unwanted dummy text
         }
     });
 
@@ -231,7 +231,7 @@ async function connectToWhatsApp() {
                 console.log("Session Logged Out. Please clear auth folder and restart.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Inbox Fix Applied)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (100% Fixed)`);
             isPairingRequested = false;
 
             try {
@@ -242,7 +242,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Safe React Function
+    // Safe React Function with Strict Protocol Handling
     async function safeReact(from, emoji, key) {
         if (!emoji || !key || !sock) return;
         try {
@@ -253,18 +253,18 @@ async function connectToWhatsApp() {
                 } 
             });
         } catch (e) {
-            console.error("React Error:", e?.message || e);
+            // Ignore reaction errors silently to prevent loop crashes
         }
     }
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
-            if (type !== 'notify') return; // Strictly process only new incoming notify events
+            if (type !== 'notify') return; 
 
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Ignore system/protocol/stub messages to eliminate Inbox loop completely
+            // Completely ignore protocol, system, or null message structures to fix "Waiting for message" loop
             if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage || msg.message.protocolMessage) return;
 
             const msgId = msg.key.id;
@@ -294,15 +294,13 @@ async function connectToWhatsApp() {
                 ''
             ).trim();
 
-            // Ignore Bot's Own Sent Responses from triggers to stop 'Waiting for this message' loop
+            // Ignore Bot's Own Responses in self-chat/inbox to stop infinite loop
             if (msg.key.fromMe && !textMessage.startsWith(config.currentPrefix)) {
-                // Return if it's a bot's automatic answer/echo
                 if (!textMessage) return;
             }
 
-            // Owner Auto React Logic Fix for Inbox & Groups
+            // Owner Auto React Logic Fix
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
-                // Prevent reacting to bot generated answers in self-chat
                 const isBotGeneratedText = textMessage.includes('MAIN MENU') || 
                                            textMessage.includes('SETTINGS MENU') || 
                                            textMessage.includes('Pong!') || 
