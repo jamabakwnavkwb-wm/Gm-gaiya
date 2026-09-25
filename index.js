@@ -169,7 +169,7 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return undefined;
+            return { conversation: 'GM GAIYA MD' };
         }
     });
 
@@ -261,13 +261,13 @@ async function connectToWhatsApp() {
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
-            if (type !== 'notify') return;
+            if (type !== 'notify' && type !== 'append') return;
 
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Ignore protocol/system messages & reaction messages
-            if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage) return;
+            // Ignore protocol/system messages, stubType messages & reaction messages
+            if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage || msg.message.protocolMessage) return;
 
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
@@ -282,12 +282,9 @@ async function connectToWhatsApp() {
             const from = msg.key.remoteJid;
             if (!from) return;
 
-            // Stop Bot from responding or reacting to its OWN output messages (Fixes "Waiting for message" Arrow Loop)
-            const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : `${PHONE_NUMBER}@s.whatsapp.net`;
+            const isGroup = from.endsWith('@g.us');
             const senderJid = msg.key.participant || msg.key.remoteJid || '';
             const senderNumber = senderJid.split('@')[0].split(':')[0];
-            
-            const isGroup = from.endsWith('@g.us');
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
             // Extract text message content
@@ -299,12 +296,21 @@ async function connectToWhatsApp() {
                 ''
             ).trim();
 
-            // Owner Auto React Logic (Only for Owner's actual sent messages)
+            // Owner Auto React Logic (Only react to user commands/messages, skip bot's own responses to prevent infinite loop)
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
-                // If text starts with bot prefix or is an automated bot response, don't react to self-loops
-                const currentOwnerEmoji = config.ownerReactEmojis[ownerEmojiIndex % config.ownerReactEmojis.length];
-                ownerEmojiIndex++;
-                await safeReact(from, currentOwnerEmoji, msg.key);
+                // Avoid reacting if message is an automated reply from the bot itself
+                const isBotGeneratedReply = msg.key.fromMe && (
+                    textMessage.includes('MAIN MENU') || 
+                    textMessage.includes('SETTINGS MENU') || 
+                    textMessage.includes('Pong!') || 
+                    textMessage.includes('Testing speed')
+                );
+
+                if (!isBotGeneratedReply) {
+                    const currentOwnerEmoji = config.ownerReactEmojis[ownerEmojiIndex % config.ownerReactEmojis.length];
+                    ownerEmojiIndex++;
+                    await safeReact(from, currentOwnerEmoji, msg.key);
+                }
             }
 
             // Others Auto React & Custom React Logic
