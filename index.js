@@ -14,7 +14,7 @@ const path = require('path');
 const http = require('http');
 const { exec, spawn } = require('child_process');
 
-// Dummy HTTP Server to Keep Bot Alive on Hosting Servers
+// Dummy HTTP Server to Keep Bot Alive
 const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -70,11 +70,7 @@ let config = {
     currentPrefix: ':',
     workMode: 'private', 
     
-    // Owner Auto React Settings
-    ownerAutoReactEnabled: true,
-    ownerReactEmojis: ['👑', '❤️'],
-
-    // Others Auto React Configurations
+    // Auto React Configurations for Others
     autoReactEnabled: true,
     autoReactTarget: 'public', 
     
@@ -92,13 +88,7 @@ function loadSettings() {
     if (fs.existsSync(SETTINGS_FILE)) {
         try {
             const data = fs.readFileSync(SETTINGS_FILE, 'utf8');
-            const loadedData = JSON.parse(data);
-            
-            if (loadedData.ownerReactEmoji && !loadedData.ownerReactEmojis) {
-                loadedData.ownerReactEmojis = loadedData.ownerReactEmoji.split(',').map(e => e.trim());
-            }
-            
-            config = { ...config, ...loadedData };
+            config = { ...config, ...JSON.parse(data) };
         } catch (e) {
             console.error("Settings load error:", e);
         }
@@ -119,8 +109,6 @@ const processedMessages = new Set();
 const userState = new Map();
 let isPairingRequested = false;
 let sock = null;
-
-let ownerEmojiIndex = 0;
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -146,10 +134,10 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // 🔒 CRITICAL FIXES FOR "Waiting for this message" & LOOP ERRORS
+        // 🔒 Fixes for "Waiting for this message" & Decryption Loops
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false, // Prevents bot handling its own emitted events in a loop
+        emitOwnEvents: false, 
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -157,7 +145,6 @@ async function connectToWhatsApp() {
         retryRequestDelayMs: 5000,
         msgRetryCounterCache,
 
-        // Safe Message Fetcher to stop loop & phantom messages
         getMessage: async (key) => {
             if (store) {
                 try {
@@ -242,7 +229,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Safe Reaction Handler
+    // Safe Reaction Function
     async function safeReact(from, emoji, key) {
         if (!emoji || !key || !sock) return;
         try {
@@ -252,9 +239,7 @@ async function connectToWhatsApp() {
                     key: key 
                 } 
             });
-        } catch (e) {
-            // Ignore reaction errors silently
-        }
+        } catch (e) {}
     }
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -262,10 +247,12 @@ async function connectToWhatsApp() {
             if (type !== 'notify') return; 
 
             const msg = messages[0];
+            const mek = msg; // Reference compatibility
             if (!msg || !msg.key) return;
 
-            // Stop loops on empty, protocol, status, or key-exchange messages
-            if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage || msg.message.protocolMessage) return;
+            // Stop loops on protocol or reaction messages
+            const isReact = !!msg.message?.reactionMessage;
+            if (!msg.message || Object.keys(msg.message).length === 0 || isReact || msg.message.protocolMessage) return;
 
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
@@ -285,7 +272,7 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            // Extract text content safely
+            // Extract text message content
             const textMessage = (
                 msg.message.conversation ||
                 msg.message.extendedTextMessage?.text ||
@@ -294,20 +281,14 @@ async function connectToWhatsApp() {
                 ''
             ).trim();
 
-            // Self-Chat Protection (DO NOT Auto React to Self Messages to Prevent Loop)
-            const isSelfChat = (from === `${PHONE_NUMBER}@s.whatsapp.net`) || msg.key.fromMe;
+            const conn = sock; // Reference compatibility
 
-            // Owner Auto React Logic
-            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0 && !isSelfChat) {
-                const isBotGeneratedText = textMessage.includes('MAIN MENU') || 
-                                           textMessage.includes('SETTINGS MENU') || 
-                                           textMessage.includes('Pong!') || 
-                                           textMessage.includes('Testing speed');
-
-                if (!isBotGeneratedText) {
-                    const currentOwnerEmoji = config.ownerReactEmojis[ownerEmojiIndex % config.ownerReactEmojis.length];
-                    ownerEmojiIndex++;
-                    await safeReact(from, currentOwnerEmoji, msg.key);
+            // 👑 YOUR EXACT OWNER AUTO REACT CODE 👑
+            if (senderNumber === "94764802314") {
+                if (!isReact) {
+                    await conn.sendMessage(from, {
+                        react: { text: "👑", key: mek.key }
+                    }).catch(() => {});
                 }
             }
 
@@ -320,8 +301,7 @@ async function connectToWhatsApp() {
                         (config.autoReactTarget === 'inbox' && !isGroup);
 
                     if (isTargetMatched) {
-                        const fallbackEmoji = config.ownerReactEmojis[0] || '👑';
-                        await safeReact(from, fallbackEmoji, msg.key);
+                        await safeReact(from, '👑', msg.key);
                     }
                 }
 
@@ -392,24 +372,18 @@ async function connectToWhatsApp() {
                     }, { quoted: msg });
                 }
                 else if (textMessage === '4') {
-                    userState.set(from, 'AWAITING_OWNER_REACT_CHOICE');
+                    userState.set(from, 'AWAITING_REACT_CHOICE');
                     return await sock.sendMessage(from, { 
-                        text: `⚙️ *OWNER AUTO REACT SETTINGS*\n\nReply with option:\n*4.1* - Turn ON Owner Auto React 🟢\n*4.2* - Turn OFF Owner Auto React 🔴\n*4.3* - Change Emojis (e.g. 👑,❤️)` 
+                        text: `⚙️ *AUTO REACT SETTINGS*\n\nReply with option:\n*4.1* - Turn ON Auto React 🟢\n*4.2* - Turn OFF Auto React 🔴\n*4.3* - Target: Group Only 👥\n*4.4* - Target: Inbox Only 📥\n*4.5* - Target: Public (All) 🌐` 
                     }, { quoted: msg });
                 }
                 else if (textMessage === '5') {
-                    userState.set(from, 'AWAITING_REACT_CHOICE');
+                    userState.set(from, 'AWAITING_CUSTOM_REACT_CHOICE');
                     return await sock.sendMessage(from, { 
-                        text: `⚙️ *AUTO REACT SETTINGS*\n\nReply with option:\n*5.1* - Turn ON Auto React 🟢\n*5.2* - Turn OFF Auto React 🔴\n*5.3* - Target: Group Only 👥\n*5.4* - Target: Inbox Only 📥\n*5.5* - Target: Public (All) 🌐\n*5.6* - Change Single Emoji 👑` 
+                        text: `⚙️ *CUSTOM REACT SETTINGS*\n\nReply with option:\n*5.1* - Turn ON Custom React 🟢\n*5.2* - Turn OFF Custom React 🔴\n*5.3* - Target: Group Only 👥\n*5.4* - Target: Inbox Only 📥\n*5.5* - Target: Public (All) 🌐\n*5.6* - Set Emojis (e.g. ❤️,👑,♥️,😑,🤔)` 
                     }, { quoted: msg });
                 }
                 else if (textMessage === '6') {
-                    userState.set(from, 'AWAITING_CUSTOM_REACT_CHOICE');
-                    return await sock.sendMessage(from, { 
-                        text: `⚙️ *CUSTOM REACT SETTINGS*\n\nReply with option:\n*6.1* - Turn ON Custom React 🟢\n*6.2* - Turn OFF Custom React 🔴\n*6.3* - Target: Group Only 👥\n*6.4* - Target: Inbox Only 📥\n*6.5* - Target: Public (All) 🌐\n*6.6* - Set Emojis (e.g. ❤️,👑,♥️,😑,🤔)` 
-                    }, { quoted: msg });
-                }
-                else if (textMessage === '7') {
                     config.viewOnceDownload = !config.viewOnceDownload;
                     saveSettings();
                     userState.delete(from);
@@ -450,72 +424,30 @@ async function connectToWhatsApp() {
                 return await sock.sendMessage(from, { text: `✅ *Work Mode set to:* ${config.workMode.toUpperCase()}` }, { quoted: msg });
             }
 
-            if (isOwner && currentState === 'AWAITING_OWNER_REACT_CHOICE') {
-                if (textMessage === '4.1') {
-                    config.ownerAutoReactEnabled = true;
-                    saveSettings();
-                    userState.delete(from);
-                    return await sock.sendMessage(from, { text: `✅ *Owner Auto React Enabled!*` }, { quoted: msg });
-                }
-                else if (textMessage === '4.2') {
-                    config.ownerAutoReactEnabled = false;
-                    saveSettings();
-                    userState.delete(from);
-                    return await sock.sendMessage(from, { text: `✅ *Owner Auto React Disabled!*` }, { quoted: msg });
-                }
-                else if (textMessage === '4.3') {
-                    userState.set(from, 'AWAITING_OWNER_EMOJIS');
-                    return await sock.sendMessage(from, { text: `Send the desired Owner Emojis separated by commas (e.g. 👑,❤️):` }, { quoted: msg });
-                }
-            }
-
-            if (isOwner && currentState === 'AWAITING_OWNER_EMOJIS') {
-                const emojiList = textMessage.split(',').map(e => e.trim()).filter(e => e.length > 0);
-                if (emojiList.length > 0) {
-                    config.ownerReactEmojis = emojiList;
-                    saveSettings();
-                    userState.delete(from);
-                    return await sock.sendMessage(from, { text: `✅ *Owner Emojis updated to:* ${config.ownerReactEmojis.join(' ')}` }, { quoted: msg });
-                } else {
-                    return await sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again (e.g. 👑,❤️).` }, { quoted: msg });
-                }
-            }
-
             if (isOwner && currentState === 'AWAITING_REACT_CHOICE') {
-                if (textMessage === '5.1') config.autoReactEnabled = true;
-                else if (textMessage === '5.2') config.autoReactEnabled = false;
-                else if (textMessage === '5.3') config.autoReactTarget = 'group';
-                else if (textMessage === '5.4') config.autoReactTarget = 'inbox';
-                else if (textMessage === '5.5') config.autoReactTarget = 'public';
-                else if (textMessage === '5.6') {
-                    userState.set(from, 'AWAITING_EMOJI');
-                    return await sock.sendMessage(from, { text: `Send the new single Emoji:` }, { quoted: msg });
-                }
+                if (textMessage === '4.1') config.autoReactEnabled = true;
+                else if (textMessage === '4.2') config.autoReactEnabled = false;
+                else if (textMessage === '4.3') config.autoReactTarget = 'group';
+                else if (textMessage === '4.4') config.autoReactTarget = 'inbox';
+                else if (textMessage === '4.5') config.autoReactTarget = 'public';
                 saveSettings();
                 userState.delete(from);
                 return await sock.sendMessage(from, { text: `✅ *Auto React Settings Updated!*` }, { quoted: msg });
             }
 
             if (isOwner && currentState === 'AWAITING_CUSTOM_REACT_CHOICE') {
-                if (textMessage === '6.1') config.customReactEnabled = true;
-                else if (textMessage === '6.2') config.customReactEnabled = false;
-                else if (textMessage === '6.3') config.customReactTarget = 'group';
-                else if (textMessage === '6.4') config.customReactTarget = 'inbox';
-                else if (textMessage === '6.5') config.customReactTarget = 'public';
-                else if (textMessage === '6.6') {
+                if (textMessage === '5.1') config.customReactEnabled = true;
+                else if (textMessage === '5.2') config.customReactEnabled = false;
+                else if (textMessage === '5.3') config.customReactTarget = 'group';
+                else if (textMessage === '5.4') config.customReactTarget = 'inbox';
+                else if (textMessage === '5.5') config.customReactTarget = 'public';
+                else if (textMessage === '5.6') {
                     userState.set(from, 'AWAITING_CUSTOM_EMOJIS');
                     return await sock.sendMessage(from, { text: `Send emojis separated by commas (e.g. ❤️,👑,♥️,😑,🤔):` }, { quoted: msg });
                 }
                 saveSettings();
                 userState.delete(from);
                 return await sock.sendMessage(from, { text: `✅ *Custom React Settings Updated!*` }, { quoted: msg });
-            }
-
-            if (isOwner && currentState === 'AWAITING_EMOJI') {
-                config.ownerReactEmojis = [textMessage.trim()];
-                saveSettings();
-                userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *Emoji updated to:* ${config.ownerReactEmojis.join(' ')}` }, { quoted: msg });
             }
 
             if (isOwner && currentState === 'AWAITING_CUSTOM_EMOJIS') {
@@ -781,16 +713,14 @@ async function connectToWhatsApp() {
                                      `*1* - Online Status Settings\n` +
                                      `*2* - Change Bot Prefix\n` +
                                      `*3* - Work Mode Settings\n` +
-                                     `*4* - Owner Auto React Settings\n` +
-                                     `*5* - Auto React Settings\n` +
-                                     `*6* - Custom React Settings\n` +
-                                     `*7* - Toggle View Once Downloader\n\n` +
+                                     `*4* - Auto React Settings\n` +
+                                     `*5* - Custom React Settings\n` +
+                                     `*6* - Toggle View Once Downloader\n\n` +
                                      `📌 *CURRENT CONFIGURATION*\n` +
                                      `• *Bot Name:* ${config.botName}\n` +
                                      `• *Prefix:* [ ${config.currentPrefix} ]\n` +
                                      `• *Work Mode:* ${config.workMode.toUpperCase()}\n` +
                                      `• *Online Status:* ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
-                                     `• *Owner Auto React:* ${config.ownerAutoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmojis.join(', ')})\n` +
                                      `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.autoReactTarget.toUpperCase()})\n` +
                                      `• *Custom React:* ${config.customReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.customReactTarget.toUpperCase()}) -> ${config.customEmojis.join(' ')}\n` +
                                      `• *View Once:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
