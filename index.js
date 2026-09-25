@@ -71,7 +71,7 @@ let config = {
     currentPrefix: ':',
     workMode: 'private', 
     
-    // Owner Auto React Settings (Multiple Emojis array for rotating reaction)
+    // Owner Auto React Settings
     ownerAutoReactEnabled: true,
     ownerReactEmojis: ['👑', '❤️'],
 
@@ -95,7 +95,6 @@ function loadSettings() {
             const data = fs.readFileSync(SETTINGS_FILE, 'utf8');
             const loadedData = JSON.parse(data);
             
-            // Backward compatibility for ownerReactEmoji
             if (loadedData.ownerReactEmoji && !loadedData.ownerReactEmojis) {
                 loadedData.ownerReactEmojis = loadedData.ownerReactEmoji.split(',').map(e => e.trim());
             }
@@ -122,7 +121,6 @@ const userState = new Map();
 let isPairingRequested = false;
 let sock = null;
 
-// Track owner emoji rotation index
 let ownerEmojiIndex = 0;
 
 async function connectToWhatsApp() {
@@ -149,10 +147,10 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Anti "Waiting for this message" & Arrow Fixes for Inbox & Groups
+        // 🔒 Absolute Fix for "Waiting for this message" & Arrow Bugs
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false, // Prevents self-event loop errors
+        emitOwnEvents: false, // Prevents self-generated event loops in Inbox
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -202,7 +200,7 @@ async function connectToWhatsApp() {
         }, SIX_HOURS);
     }, 10000);
 
-    // Connection & Valid Pairing Code Generation Logic
+    // Connection Logic
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -233,7 +231,7 @@ async function connectToWhatsApp() {
                 console.log("Session Logged Out. Please clear auth folder and restart.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Session Sync Active)`);
+            console.log(`✅ ${config.botName} - සාර්ථකව සම්බන්ධ විය! (Inbox Fix Applied)`);
             isPairingRequested = false;
 
             try {
@@ -261,12 +259,12 @@ async function connectToWhatsApp() {
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
-            if (type !== 'notify' && type !== 'append') return;
+            if (type !== 'notify') return; // Strictly process only new incoming notify events
 
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Ignore protocol/system messages, stubType messages & reaction messages
+            // Ignore system/protocol/stub messages to eliminate Inbox loop completely
             if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage || msg.message.protocolMessage) return;
 
             const msgId = msg.key.id;
@@ -287,7 +285,7 @@ async function connectToWhatsApp() {
             const senderNumber = senderJid.split('@')[0].split(':')[0];
             const isOwner = senderNumber === PHONE_NUMBER || msg.key.fromMe;
 
-            // Extract text message content
+            // Extract text content safely
             const textMessage = (
                 msg.message.conversation ||
                 msg.message.extendedTextMessage?.text ||
@@ -296,17 +294,21 @@ async function connectToWhatsApp() {
                 ''
             ).trim();
 
-            // Owner Auto React Logic (Only react to user commands/messages, skip bot's own responses to prevent infinite loop)
-            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
-                // Avoid reacting if message is an automated reply from the bot itself
-                const isBotGeneratedReply = msg.key.fromMe && (
-                    textMessage.includes('MAIN MENU') || 
-                    textMessage.includes('SETTINGS MENU') || 
-                    textMessage.includes('Pong!') || 
-                    textMessage.includes('Testing speed')
-                );
+            // Ignore Bot's Own Sent Responses from triggers to stop 'Waiting for this message' loop
+            if (msg.key.fromMe && !textMessage.startsWith(config.currentPrefix)) {
+                // Return if it's a bot's automatic answer/echo
+                if (!textMessage) return;
+            }
 
-                if (!isBotGeneratedReply) {
+            // Owner Auto React Logic Fix for Inbox & Groups
+            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
+                // Prevent reacting to bot generated answers in self-chat
+                const isBotGeneratedText = textMessage.includes('MAIN MENU') || 
+                                           textMessage.includes('SETTINGS MENU') || 
+                                           textMessage.includes('Pong!') || 
+                                           textMessage.includes('Testing speed');
+
+                if (!isBotGeneratedText) {
                     const currentOwnerEmoji = config.ownerReactEmojis[ownerEmojiIndex % config.ownerReactEmojis.length];
                     ownerEmojiIndex++;
                     await safeReact(from, currentOwnerEmoji, msg.key);
