@@ -139,10 +139,10 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Anti "Waiting for this message" & Anti Spam Fixes
+        // Anti "Waiting for this message" & Arrow Fixes
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false,
+        emitOwnEvents: false, // Disables self-event looping
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -227,7 +227,6 @@ async function connectToWhatsApp() {
             isPairingRequested = false;
 
             try {
-                // Apply saved Presence status on connect
                 await sock.sendPresenceUpdate(config.botPresence);
             } catch (e) {}
         }
@@ -235,10 +234,19 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Safe React Function
-    function safeReact(from, emoji, key) {
+    // Fixed Safe React Function (Sends genuine Reaction payload)
+    async function safeReact(from, emoji, key) {
         if (!emoji || !key || !sock) return;
-        sock.sendMessage(from, { react: { text: emoji, key: key } }).catch(() => {});
+        try {
+            await sock.sendMessage(from, { 
+                react: { 
+                    text: emoji, 
+                    key: key 
+                } 
+            });
+        } catch (e) {
+            console.error("React Error:", e?.message || e);
+        }
     }
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -248,7 +256,8 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            if (!msg.message || Object.keys(msg.message).length === 0) return;
+            // Ignore system/protocol messages and reactions themselves
+            if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage) return;
 
             const msgId = msg.key.id;
             if (processedMessages.has(msgId)) return;
@@ -270,7 +279,7 @@ async function connectToWhatsApp() {
 
             // Owner Auto React
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmoji) {
-                safeReact(from, config.ownerReactEmoji, msg.key);
+                await safeReact(from, config.ownerReactEmoji, msg.key);
             }
 
             // Others Auto React & Custom React Logic
@@ -282,7 +291,7 @@ async function connectToWhatsApp() {
                         (config.autoReactTarget === 'inbox' && !isGroup);
 
                     if (isTargetMatched) {
-                        safeReact(from, config.ownerReactEmoji, msg.key);
+                        await safeReact(from, config.ownerReactEmoji, msg.key);
                     }
                 }
 
@@ -294,7 +303,7 @@ async function connectToWhatsApp() {
 
                     if (isCustomTargetMatched) {
                         const randomEmoji = config.customEmojis[Math.floor(Math.random() * config.customEmojis.length)];
-                        safeReact(from, randomEmoji, msg.key);
+                        await safeReact(from, randomEmoji, msg.key);
                     }
                 }
             }
