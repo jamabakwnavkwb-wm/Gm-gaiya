@@ -67,7 +67,7 @@ try {
 // Configurations
 let config = {
     botName: 'GM GAIYA - MD',
-    botPresence: 'available',
+    botPresence: 'available', // 'available' = Online, 'unavailable' = Offline
     currentPrefix: ':',
     workMode: 'private', 
     
@@ -143,7 +143,7 @@ async function connectToWhatsApp() {
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
         emitOwnEvents: false,
-        markOnlineOnConnect: true,
+        markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000,
@@ -227,9 +227,8 @@ async function connectToWhatsApp() {
             isPairingRequested = false;
 
             try {
-                if (config.botPresence === 'available') {
-                    await sock.sendPresenceUpdate(config.botPresence);
-                }
+                // Apply saved Presence status on connect
+                await sock.sendPresenceUpdate(config.botPresence);
             } catch (e) {}
         }
     });
@@ -387,12 +386,21 @@ async function connectToWhatsApp() {
                 }
             }
 
+            // Realtime Online Status Switching Logic
             if (isOwner && currentState === 'AWAITING_ONLINE_CHOICE') {
-                if (textMessage === '1.1') config.botPresence = 'available';
-                if (textMessage === '1.2') config.botPresence = 'unavailable';
-                saveSettings();
-                userState.delete(from);
-                return await sock.sendMessage(from, { text: `✅ *Online Status Updated!*` }, { quoted: msg });
+                if (textMessage === '1.1') {
+                    config.botPresence = 'available';
+                    await sock.sendPresenceUpdate('available').catch(() => {});
+                    saveSettings();
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Online Status is now Turned ON (Online) 🟢*` }, { quoted: msg });
+                } else if (textMessage === '1.2') {
+                    config.botPresence = 'unavailable';
+                    await sock.sendPresenceUpdate('unavailable').catch(() => {});
+                    saveSettings();
+                    userState.delete(from);
+                    return await sock.sendMessage(from, { text: `✅ *Online Status is now Turned OFF (Offline) 🔴*` }, { quoted: msg });
+                }
             }
 
             if (isOwner && currentState === 'AWAITING_PREFIX_CHOICE') {
@@ -478,7 +486,7 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // .admin / .promote Command (FIXED)
+            // .admin / .promote Command
             if (command === 'admin' || command === 'promote') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
@@ -532,7 +540,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // .kick Command (FIXED)
+            // .kick Command
             if (command === 'kick') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
@@ -586,7 +594,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // .add Command (FIXED)
+            // .add Command
             if (command === 'add') {
                 if (!isGroup) {
                     return await sock.sendMessage(from, { text: '❌ මෙම Command එක භාවිත කළ හැක්කේ Groups තුළ පමණි.' }, { quoted: msg });
