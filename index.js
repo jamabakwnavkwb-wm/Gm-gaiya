@@ -14,8 +14,6 @@ const path = require('path');
 const http = require('http');
 const { exec } = require('child_process');
 const https = require('https');
-const axios = require('axios');
-const cheerio = require('cheerio');
 
 // 🌐 Keep-Alive Server
 const PORT = process.env.PORT || 8080;
@@ -189,23 +187,37 @@ let isPairingRequested = false;
 let sock = null;
 let ownerEmojiIndex = 0;
 
-// Cinesubz Scraper Functions
+// Helper function to fetch HTML without external dependencies
+function fetchUrl(url) {
+    return new Promise((resolve, reject) => {
+        https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve(data));
+        }).on('error', err => reject(err));
+    });
+}
+
+// Cinesubz Scraper Functions without Cheerio/Axios
 async function searchCinesubz(query) {
     try {
         const url = `https://cinesubz.co/?s=${encodeURIComponent(query)}`;
-        const { data } = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const $ = cheerio.load(data);
+        const html = await fetchUrl(url);
         const results = [];
 
-        $('div.result-item, article.item').each((i, el) => {
-            const title = $(el).find('div.title a, h3.title a').text().trim();
-            const link = $(el).find('div.title a, h3.title a').attr('href');
-            const img = $(el).find('img').attr('src');
-            if (title && link) {
-                results.push({ title, link, img });
+        const regex = /<a[^>]+href="(https:\/\/cinesubz\.co\/movies\/[^"]+)"[^>]*>(.*?)<\/a>/gi;
+        let match;
+        const seen = new Set();
+
+        while ((match = regex.exec(html)) !== null) {
+            const link = match[1];
+            let title = match[2].replace(/<[^>]+>/g, '').trim();
+            if (title && !seen.has(link) && title.length > 2) {
+                seen.add(link);
+                results.push({ title, link });
             }
-        });
-        return results;
+        }
+        return results.slice(0, 10);
     } catch (e) {
         return [];
     }
@@ -213,23 +225,24 @@ async function searchCinesubz(query) {
 
 async function getMovieDetails(movieUrl) {
     try {
-        const { data } = await axios.get(movieUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const $ = cheerio.load(data);
+        const html = await fetchUrl(movieUrl);
+        
+        let titleMatch = html.match(/<h1[^>]*>(.*?)<\/h1>/i);
+        let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : 'Movie Details';
 
-        const title = $('h1.entry-title, h1').first().text().trim() || 'Movie Details';
-        const img = $('div.poster img, div.entry-content img').first().attr('src') || '';
-        const desc = $('div.entry-content p').first().text().trim() || 'No description available.';
+        let imgMatch = html.match(/<img[^>]+src="(https:\/\/[^"]+\.(?:jpg|jpeg|png))"[^>]*>/i);
+        let img = imgMatch ? imgMatch[1] : '';
 
         const downloadLinks = [];
-        $('a[href*="mega"], a[href*="drive.google"], a[href*="pixeldrain"], a[href*="direct"], a.download-btn, div.download-links a').each((i, el) => {
-            const linkName = $(el).text().trim() || `Option ${i + 1}`;
-            const link = $(el).attr('href');
-            if (link && link.startsWith('http')) {
-                downloadLinks.push({ name: linkName, url: link });
-            }
-        });
+        const linkRegex = /href="(https:\/\/[^"]*(?:mega|pixeldrain|drive|direct|download)[^"]*)"/gi;
+        let lMatch;
+        let idx = 1;
 
-        return { title, img, desc, downloadLinks };
+        while ((lMatch = linkRegex.exec(html)) !== null) {
+            downloadLinks.push({ name: `Download Link ${idx++}`, url: lMatch[1] });
+        }
+
+        return { title, img, desc: 'Cinesubz Movie Details', downloadLinks };
     } catch (e) {
         return null;
     }
@@ -436,9 +449,7 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
-            // ----------------------------------------------------
-            // 🎬 MOVIE SELECTION & DOWNLOAD WORKFLOW (REPLY HANDLERS)
-            // ----------------------------------------------------
+            // 🎬 MOVIE SELECTION & DOWNLOAD WORKFLOW
             if (currentState && typeof currentState === 'object' && currentState.type === 'MOVIE_SEARCH_LIST') {
                 const choice = parseInt(textMessage.trim());
                 if (!isNaN(choice) && choice > 0 && choice <= currentState.results.length) {
@@ -459,7 +470,6 @@ async function connectToWhatsApp() {
                     });
 
                     let detailsCard = `🎬 *${movieData.title.toUpperCase()}*\n\n` +
-                                       `📝 *Description:* ${movieData.desc.substring(0, 300)}...\n\n` +
                                        `🔗 *Movie Link:* ${selectedMovie.link}`;
 
                     if (movieData.img) {
@@ -468,7 +478,6 @@ async function connectToWhatsApp() {
                         await sock.sendMessage(from, { text: detailsCard }, sendOptions);
                     }
 
-                    // Download Menu
                     let dlText = `📥 *DOWNLOAD OPTIONS - ${movieData.title}*\n\n` +
                                  `Reply with the option number to download:\n\n`;
 
@@ -699,9 +708,7 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // ----------------------------------------------------
             // 🎬 .cinesubz & .movie SEARCH COMMAND
-            // ----------------------------------------------------
             if (command === 'cinesubz' || command === 'movie') {
                 const query = args.join(' ').trim();
                 if (!query) {
