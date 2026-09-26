@@ -68,17 +68,17 @@ let config = {
     botName: 'GM GAIYA - MD',
     botPresence: 'available',
     currentPrefix: ':',
-    workMode: 'private', 
+    workMode: 'public', 
     
     ownerAutoReactEnabled: true,
     ownerReactEmojis: ['👑', '❤️'],
 
-    autoReactEnabled: true,
+    autoReactEnabled: false,
     autoReactTarget: 'public', 
     
     customReactEnabled: false,
     customReactTarget: 'public', 
-    customEmojis: ['❤️', '👑', '♥️', '😑', '🤔'],
+    customEmojis: ['❤️', '👑', '♥️'],
     
     viewOnceDownload: true,
     githubToken: process.env.GITHUB_TOKEN || "NOT SET",
@@ -112,7 +112,7 @@ async function syncToGitHub(filePath, content, commitMessage) {
             path: `/repos/${repo}/contents/${filename}`,
             method: 'GET',
             headers: {
-                'User-Agent': 'Node.js',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                 'Authorization': `token ${config.githubToken}`,
                 'Accept': 'application/vnd.github.v3+json'
             }
@@ -139,7 +139,7 @@ async function syncToGitHub(filePath, content, commitMessage) {
                     path: `/repos/${repo}/contents/${filename}`,
                     method: 'PUT',
                     headers: {
-                        'User-Agent': 'Node.js',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                         'Authorization': `token ${config.githubToken}`,
                         'Content-Type': 'application/json',
                         'Content-Length': Buffer.byteLength(putData)
@@ -183,7 +183,13 @@ let ownerEmojiIndex = 0;
 // HTTP Helper Function
 function fetchUrl(url) {
     return new Promise((resolve, reject) => {
-        const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (res) => {
+        const options = {
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+            }
+        };
+        const req = https.get(url, options, (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 return fetchUrl(res.headers.location).then(resolve).catch(reject);
             }
@@ -206,18 +212,27 @@ async function searchCinesubz(query) {
         const html = await fetchUrl(url);
         const results = [];
 
-        const articleRegex = /<article[^>]*>([\s\S]*?)<\/article>/gi;
+        // Improved Regex for fetching movie articles
+        const linkRegex = /<a[^>]+href="(https:\/\/cinesubz\.co\/movies\/[^"]+)"[^>]*>(.*?)<\/a>/gi;
+        const altLinkRegex = /href="(https:\/\/cinesubz\.co\/[^\/]+\/)"[^>]*title="([^"]+)"/gi;
+        
         let match;
         const seen = new Set();
 
-        while ((match = articleRegex.exec(html)) !== null) {
-            const articleContent = match[1];
-            const linkMatch = articleContent.match(/href="(https:\/\/cinesubz\.co\/[^\/]+\/[^"]+)"/i) || articleContent.match(/href="(https:\/\/cinesubz\.co\/[^"]+)"/i);
-            const titleMatch = articleContent.match(/<h2[^>]*>(.*?)<\/h2>/i) || articleContent.match(/alt="([^"]+)"/i) || articleContent.match(/title="([^"]+)"/i);
+        while ((match = linkRegex.exec(html)) !== null) {
+            const link = match[1];
+            let title = match[2].replace(/<[^>]+>/g, '').trim();
 
-            if (linkMatch && titleMatch) {
-                const link = linkMatch[1];
-                let title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+            if (title && !seen.has(link)) {
+                seen.add(link);
+                results.push({ title, link });
+            }
+        }
+
+        if (results.length === 0) {
+            while ((match = altLinkRegex.exec(html)) !== null) {
+                const link = match[1];
+                let title = match[2].trim();
 
                 if (title && !seen.has(link) && !link.includes('/category/') && !link.includes('/tag/')) {
                     seen.add(link);
@@ -225,6 +240,7 @@ async function searchCinesubz(query) {
                 }
             }
         }
+
         return results.slice(0, 10);
     } catch (e) {
         console.error("Movie Search Error:", e);
@@ -309,7 +325,8 @@ async function connectToWhatsApp() {
                     return msg?.message || undefined;
                 } catch (e) { return undefined; }
             }
-            return { conversation: 'Hello' };
+            // "Hello" මැසේජ් එක ඉබේ යැවීම නැවැත්වීම සඳහා
+            return { conversation: '' };
         }
     });
 
