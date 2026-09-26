@@ -136,7 +136,7 @@ async function processQueue() {
         } catch (e) {
             console.error("Queue Task Error:", e?.message || e);
         }
-        await new Promise((resolve) => setTimeout(resolve, 300)); // Smooth message throttle
+        await new Promise((resolve) => setTimeout(resolve, 300));
     }
     
     isProcessingQueue = false;
@@ -171,7 +171,6 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // WhatsApp Connectivity & Decryption Fixes
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
         emitOwnEvents: false, 
@@ -197,7 +196,7 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Auto Restart Mechanism every 6 hours (Server Freshness)
+    // Auto Restart Mechanism every 6 hours
     setTimeout(() => {
         const SIX_HOURS = 6 * 60 * 60 * 1000;
         setInterval(async () => {
@@ -282,7 +281,6 @@ async function connectToWhatsApp() {
             const msg = messages[0];
             if (!msg || !msg.key) return;
 
-            // Stop loops on protocol or reaction messages
             if (!msg.message || Object.keys(msg.message).length === 0 || msg.message.reactionMessage || msg.message.protocolMessage) return;
 
             const msgId = msg.key.id;
@@ -313,10 +311,11 @@ async function connectToWhatsApp() {
 
             const isSelfChat = (from === `${PHONE_NUMBER}@s.whatsapp.net`) || msg.key.fromMe;
 
-            // Owner Auto React Logic
-            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0 && !isSelfChat) {
+            // Fixed Owner Auto React Logic (Cycles through emojis for each message)
+            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
                 const isBotGeneratedText = textMessage.includes('MAIN MENU') || 
                                            textMessage.includes('SETTINGS MENU') || 
+                                           textMessage.includes('OWNER AUTO REACT SETTINGS') ||
                                            textMessage.includes('Pong!') || 
                                            textMessage.includes('Testing speed');
 
@@ -444,18 +443,19 @@ async function connectToWhatsApp() {
                 return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Work Mode set to:* ${config.workMode.toUpperCase()}` }, { quoted: msg }));
             }
 
+            // Fixed Options 4.1, 4.2, 4.3 Input Handling
             if (isOwner && currentState === 'AWAITING_OWNER_REACT_CHOICE') {
                 if (textMessage === '4.1') {
                     config.ownerAutoReactEnabled = true;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Auto React Enabled!*` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Auto React Enabled!* 🟢` }, { quoted: msg }));
                 }
                 else if (textMessage === '4.2') {
                     config.ownerAutoReactEnabled = false;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Auto React Disabled!*` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Auto React Disabled!* 🔴` }, { quoted: msg }));
                 }
                 else if (textMessage === '4.3') {
                     userState.set(from, 'AWAITING_OWNER_EMOJIS');
@@ -467,6 +467,7 @@ async function connectToWhatsApp() {
                 const emojiList = textMessage.split(',').map(e => e.trim()).filter(e => e.length > 0);
                 if (emojiList.length > 0) {
                     config.ownerReactEmojis = emojiList;
+                    ownerEmojiIndex = 0; // Reset index counter on new emoji list
                     saveSettings();
                     userState.delete(from);
                     return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Emojis updated to:* ${config.ownerReactEmojis.join(' ')}` }, { quoted: msg }));
