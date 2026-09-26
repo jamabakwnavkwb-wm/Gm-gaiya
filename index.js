@@ -15,7 +15,7 @@ const http = require('http');
 const { exec, spawn } = require('child_process');
 const https = require('https');
 
-// 🌐 KataBump & Cloud Server Keep-Alive HTTP Server
+// 🌐 Keep-Alive Server
 const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -67,7 +67,7 @@ try {
 // Bot Configuration State
 let config = {
     botName: 'GM GAIYA - MD',
-    botPresence: 'available', 
+    botPresence: 'available', // 'available' = Online, 'unavailable' = Offline
     currentPrefix: ':',
     workMode: 'private', 
     
@@ -188,7 +188,7 @@ let isPairingRequested = false;
 let sock = null;
 let ownerEmojiIndex = 0;
 
-// Optimized Message Queue
+// Message Queue
 const messageQueue = [];
 let isProcessingQueue = false;
 
@@ -239,7 +239,7 @@ async function connectToWhatsApp() {
         
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false, // Prevents own message encryption loops in Inbox
+        emitOwnEvents: false, 
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -274,7 +274,6 @@ async function connectToWhatsApp() {
                               `⏰ පැය 6 කාල රාමුව අනුව සේවා සුමටව පවත්වා ගැනීමට Reconnect වෙනවා.` 
                     }).catch(() => {});
                     
-                    // Re-connect session safely without going offline permanently
                     sock.ws.close();
                 }
             } catch (err) {}
@@ -320,7 +319,8 @@ async function connectToWhatsApp() {
                 const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
                 await sock.sendMessage(ownerJid, {
                     text: `🟢 *${config.botName} Connected Successfully! (24/7 Active)*\n\n` +
-                          `🤖 GitHub Repository Sync: ${config.githubRepo}`
+                          `🤖 Presence Status: ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
+                          `📁 GitHub Repo: ${config.githubRepo}`
                 }).catch(() => {});
             } catch (e) {}
         }
@@ -375,7 +375,6 @@ async function connectToWhatsApp() {
             ).trim();
 
             const isSelfChat = (from === `${PHONE_NUMBER}@s.whatsapp.net`) || msg.key.fromMe;
-            // Send Options Fix: Quoted only for normal group/chats to prevent inbox error
             const sendOptions = isSelfChat ? {} : { quoted: msg };
 
             // Owner Auto React Logic
@@ -491,6 +490,29 @@ async function connectToWhatsApp() {
                     saveSettings();
                     userState.delete(from);
                     return enqueueTask(() => sock.sendMessage(from, { text: `👁️ *View Once Downloader is now:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}` }, sendOptions));
+                }
+                else if (textMessage === '8') {
+                    userState.set(from, 'AWAITING_PRESENCE_CHOICE');
+                    return enqueueTask(() => sock.sendMessage(from, { 
+                        text: `⚙️ *ONLINE / OFFLINE STATUS SETTINGS*\n\nReply with option:\n*8.1* - Set Status ONLINE 🟢\n*8.2* - Set Status OFFLINE 🔴` 
+                    }, sendOptions));
+                }
+            }
+
+            if (isOwner && currentState === 'AWAITING_PRESENCE_CHOICE') {
+                if (textMessage === '8.1' || textMessage.toLowerCase() === 'on') {
+                    config.botPresence = 'available';
+                    await sock.sendPresenceUpdate('available');
+                    saveSettings();
+                    userState.delete(from);
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Bot Presence set to:* ONLINE 🟢` }, sendOptions));
+                }
+                else if (textMessage === '8.2' || textMessage.toLowerCase() === 'off') {
+                    config.botPresence = 'unavailable';
+                    await sock.sendPresenceUpdate('unavailable');
+                    saveSettings();
+                    userState.delete(from);
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Bot Presence set to:* OFFLINE 🔴` }, sendOptions));
                 }
             }
 
@@ -678,11 +700,13 @@ async function connectToWhatsApp() {
                                      `*4* - Owner Auto React Settings\n` +
                                      `*5* - Auto React Settings\n` +
                                      `*6* - Custom React Settings\n` +
-                                     `*7* - Toggle View Once Downloader\n\n` +
+                                     `*7* - Toggle View Once Downloader\n` +
+                                     `*8* - Bot Online/Offline Status Settings\n\n` +
                                      `📌 *CURRENT CONFIGURATION*\n` +
                                      `• *Bot Name:* ${config.botName}\n` +
                                      `• *Prefix:* [ ${config.currentPrefix} ]\n` +
                                      `• *Work Mode:* ${config.workMode.toUpperCase()}\n` +
+                                     `• *Presence Status:* ${config.botPresence === 'available' ? 'ONLINE 🟢' : 'OFFLINE 🔴'}\n` +
                                      `• *Owner Auto React:* ${config.ownerAutoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmojis.join(', ')})\n` +
                                      `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.autoReactTarget.toUpperCase()})\n` +
                                      `• *Custom React:* ${config.customReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.customReactTarget.toUpperCase()}) -> ${config.customEmojis.join(' ')}\n` +
@@ -698,6 +722,7 @@ async function connectToWhatsApp() {
                 const menuText = `✨ *${config.botName} MAIN MENU* ✨\n\n` +
                                  `🤖 *Bot Name:* ${config.botName}\n` +
                                  `⚙️ *Mode:* ${config.workMode.toUpperCase()}\n` +
+                                 `🌐 *Presence:* ${config.botPresence === 'available' ? 'ONLINE 🟢' : 'OFFLINE 🔴'}\n` +
                                  `📌 *Prefix:* [ ${config.currentPrefix} ]\n\n` +
                                  `*AVAILABLE COMMANDS:*\n` +
                                  `┌──────────────\n` +
