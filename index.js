@@ -34,7 +34,7 @@ try {
     msgRetryCounterCache = new Map();
 }
 
-// Global Crash Prevention Handlers
+// Global Crash Prevention Handlers (Keep Process Alive & Prevent Sudden Stop)
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception Prevented:', err?.message || err);
 });
@@ -212,7 +212,6 @@ async function searchCinesubz(query) {
         const html = await fetchUrl(url);
         const results = [];
 
-        // Improved Regex for fetching movie articles
         const linkRegex = /<a[^>]+href="(https:\/\/cinesubz\.co\/movies\/[^"]+)"[^>]*>(.*?)<\/a>/gi;
         const altLinkRegex = /href="(https:\/\/cinesubz\.co\/[^\/]+\/)"[^>]*title="([^"]+)"/gi;
         
@@ -281,7 +280,7 @@ async function getMovieDetails(movieUrl) {
     }
 }
 
-// Connection Setup & Keep-Alive Loop
+// Connection Setup & Auto-Reconnect Keep-Alive Loop
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
@@ -325,14 +324,13 @@ async function connectToWhatsApp() {
                     return msg?.message || undefined;
                 } catch (e) { return undefined; }
             }
-            // "Hello" මැසේජ් එක ඉබේ යැවීම නැවැත්වීම සඳහා
             return { conversation: '' };
         }
     });
 
     if (store) store.bind(sock.ev);
 
-    // Auto Reconnect Handler
+    // Auto Reconnect Handler (Automatic Recovery on Restart/Offline)
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -353,12 +351,16 @@ async function connectToWhatsApp() {
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             isPairingRequested = false;
-            console.log(`⚠️ Connection closed (Status: ${statusCode}). Auto-reconnecting...`);
+            console.log(`⚠️ Connection closed (Status: ${statusCode}). Reconnecting in 3 seconds...`);
             
             if (statusCode !== DisconnectReason.loggedOut) {
                 setTimeout(() => connectToWhatsApp(), 3000);
             } else {
-                console.log("❌ Session Logged Out. Please clear auth folder and pair again.");
+                console.log("❌ Session Logged Out. Clearing old session to restart...");
+                try {
+                    fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                } catch (e) {}
+                setTimeout(() => connectToWhatsApp(), 3000);
             }
         } else if (connection === 'open') {
             console.log(`✅ ${config.botName} - Connected Successfully & 24/7 Active!`);
