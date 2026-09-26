@@ -172,12 +172,12 @@ async function connectToWhatsApp() {
         
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: true, 
+        emitOwnEvents: false, // Prevents own message duplication/bugs
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 25000,
-        retryRequestDelayMs: 2000,
+        retryRequestDelayMs: 1000,
         msgRetryCounterCache,
 
         getMessage: async (key) => {
@@ -189,7 +189,7 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return { conversation: "Ping" };
+            return { conversation: "Hello" };
         }
     });
 
@@ -314,8 +314,10 @@ async function connectToWhatsApp() {
             ).trim();
 
             const isSelfChat = (from === `${PHONE_NUMBER}@s.whatsapp.net`) || msg.key.fromMe;
+            // Safe option for sending reply without triggering encryption bug in Self-Chat
+            const sendOptions = isSelfChat ? {} : { quoted: msg };
 
-            // Fixed Owner Auto React Logic (Cycles through emojis for each message)
+            // Fixed Owner Auto React Logic
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
                 const isBotGeneratedText = textMessage.includes('MAIN MENU') || 
                                            textMessage.includes('SETTINGS MENU') || 
@@ -373,10 +375,10 @@ async function connectToWhatsApp() {
                     config.githubToken = currentState.data;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *GitHub Token successfully updated & saved!* 🟢` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *GitHub Token successfully updated & saved!* 🟢` }, sendOptions));
                 } else if (textMessage === '2') {
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `❌ *GitHub Token update cancelled!*` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `❌ *GitHub Token update cancelled!*` }, sendOptions));
                 }
             }
 
@@ -385,10 +387,10 @@ async function connectToWhatsApp() {
                     config.githubRepo = currentState.data;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *GitHub Repo Name updated to:* [ *${config.githubRepo}* ] 🟢` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *GitHub Repo Name updated to:* [ *${config.githubRepo}* ] 🟢` }, sendOptions));
                 } else if (textMessage === '2') {
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `❌ *GitHub Repo update cancelled!*` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `❌ *GitHub Repo update cancelled!*` }, sendOptions));
                 }
             }
 
@@ -397,37 +399,37 @@ async function connectToWhatsApp() {
                     userState.set(from, 'AWAITING_PREFIX_CHOICE');
                     return enqueueTask(() => sock.sendMessage(from, { 
                         text: `⚙️ *CHANGE PREFIX*\n\nCurrent: [ *${config.currentPrefix}* ]\nSend desired prefix symbol (e.g., # , . , !)` 
-                    }, { quoted: msg }));
+                    }, sendOptions));
                 }
                 else if (textMessage === '3') {
                     userState.set(from, 'AWAITING_MODE_CHOICE');
                     return enqueueTask(() => sock.sendMessage(from, { 
                         text: `⚙️ *WORK MODE SETTINGS*\n\nReply with option:\n*3.1* - Private Mode 🔒\n*3.2* - Group Mode 👥\n*3.3* - Inbox Mode 📥\n*3.4* - Public Mode 🌐` 
-                    }, { quoted: msg }));
+                    }, sendOptions));
                 }
                 else if (textMessage === '4') {
                     userState.set(from, 'AWAITING_OWNER_REACT_CHOICE');
                     return enqueueTask(() => sock.sendMessage(from, { 
                         text: `⚙️ *OWNER AUTO REACT SETTINGS*\n\nReply with option:\n*4.1* - Turn ON Owner Auto React 🟢\n*4.2* - Turn OFF Owner Auto React 🔴\n*4.3* - Change Emojis (e.g. 👑,❤️)` 
-                    }, { quoted: msg }));
+                    }, sendOptions));
                 }
                 else if (textMessage === '5') {
                     userState.set(from, 'AWAITING_REACT_CHOICE');
                     return enqueueTask(() => sock.sendMessage(from, { 
                         text: `⚙️ *AUTO REACT SETTINGS*\n\nReply with option:\n*5.1* - Turn ON Auto React 🟢\n*5.2* - Turn OFF Auto React 🔴\n*5.3* - Target: Group Only 👥\n*5.4* - Target: Inbox Only 📥\n*5.5* - Target: Public (All) 🌐\n*5.6* - Change Single Emoji 👑` 
-                    }, { quoted: msg }));
+                    }, sendOptions));
                 }
                 else if (textMessage === '6') {
                     userState.set(from, 'AWAITING_CUSTOM_REACT_CHOICE');
                     return enqueueTask(() => sock.sendMessage(from, { 
                         text: `⚙️ *CUSTOM REACT SETTINGS*\n\nReply with option:\n*6.1* - Turn ON Custom React 🟢\n*6.2* - Turn OFF Custom React 🔴\n*6.3* - Target: Group Only 👥\n*6.4* - Target: Inbox Only 📥\n*6.5* - Target: Public (All) 🌐\n*6.6* - Set Emojis (e.g. ❤️,👑,♥️,😑,🤔)` 
-                    }, { quoted: msg }));
+                    }, sendOptions));
                 }
                 else if (textMessage === '7') {
                     config.viewOnceDownload = !config.viewOnceDownload;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `👁️ *View Once Downloader is now:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `👁️ *View Once Downloader is now:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}` }, sendOptions));
                 }
             }
 
@@ -435,7 +437,7 @@ async function connectToWhatsApp() {
                 config.currentPrefix = textMessage.trim()[0] || config.currentPrefix;
                 saveSettings();
                 userState.delete(from);
-                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Prefix set to:* [ *${config.currentPrefix}* ]` }, { quoted: msg }));
+                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Prefix set to:* [ *${config.currentPrefix}* ]` }, sendOptions));
             }
 
             if (isOwner && currentState === 'AWAITING_MODE_CHOICE') {
@@ -445,26 +447,25 @@ async function connectToWhatsApp() {
                 if (textMessage === '3.4') config.workMode = 'public';
                 saveSettings();
                 userState.delete(from);
-                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Work Mode set to:* ${config.workMode.toUpperCase()}` }, { quoted: msg }));
+                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Work Mode set to:* ${config.workMode.toUpperCase()}` }, sendOptions));
             }
 
-            // Fixed Options 4.1, 4.2, 4.3 Input Handling
             if (isOwner && currentState === 'AWAITING_OWNER_REACT_CHOICE') {
                 if (textMessage === '4.1') {
                     config.ownerAutoReactEnabled = true;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Auto React Enabled!* 🟢` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Auto React Enabled!* 🟢` }, sendOptions));
                 }
                 else if (textMessage === '4.2') {
                     config.ownerAutoReactEnabled = false;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Auto React Disabled!* 🔴` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Auto React Disabled!* 🔴` }, sendOptions));
                 }
                 else if (textMessage === '4.3') {
                     userState.set(from, 'AWAITING_OWNER_EMOJIS');
-                    return enqueueTask(() => sock.sendMessage(from, { text: `Send the desired Owner Emojis separated by commas (e.g. 👑,❤️):` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `Send the desired Owner Emojis separated by commas (e.g. 👑,❤️):` }, sendOptions));
                 }
             }
 
@@ -472,12 +473,12 @@ async function connectToWhatsApp() {
                 const emojiList = textMessage.split(',').map(e => e.trim()).filter(e => e.length > 0);
                 if (emojiList.length > 0) {
                     config.ownerReactEmojis = emojiList;
-                    ownerEmojiIndex = 0; // Reset index counter on new emoji list
+                    ownerEmojiIndex = 0;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Emojis updated to:* ${config.ownerReactEmojis.join(' ')}` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Owner Emojis updated to:* ${config.ownerReactEmojis.join(' ')}` }, sendOptions));
                 } else {
-                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again (e.g. 👑,❤️).` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again (e.g. 👑,❤️).` }, sendOptions));
                 }
             }
 
@@ -489,11 +490,11 @@ async function connectToWhatsApp() {
                 else if (textMessage === '5.5') config.autoReactTarget = 'public';
                 else if (textMessage === '5.6') {
                     userState.set(from, 'AWAITING_EMOJI');
-                    return enqueueTask(() => sock.sendMessage(from, { text: `Send the new single Emoji:` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `Send the new single Emoji:` }, sendOptions));
                 }
                 saveSettings();
                 userState.delete(from);
-                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Auto React Settings Updated!*` }, { quoted: msg }));
+                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Auto React Settings Updated!*` }, sendOptions));
             }
 
             if (isOwner && currentState === 'AWAITING_CUSTOM_REACT_CHOICE') {
@@ -504,18 +505,18 @@ async function connectToWhatsApp() {
                 else if (textMessage === '6.5') config.customReactTarget = 'public';
                 else if (textMessage === '6.6') {
                     userState.set(from, 'AWAITING_CUSTOM_EMOJIS');
-                    return enqueueTask(() => sock.sendMessage(from, { text: `Send emojis separated by commas (e.g. ❤️,👑,♥️,😑,🤔):` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `Send emojis separated by commas (e.g. ❤️,👑,♥️,😑,🤔):` }, sendOptions));
                 }
                 saveSettings();
                 userState.delete(from);
-                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Custom React Settings Updated!*` }, { quoted: msg }));
+                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Custom React Settings Updated!*` }, sendOptions));
             }
 
             if (isOwner && currentState === 'AWAITING_EMOJI') {
                 config.ownerReactEmojis = [textMessage.trim()];
                 saveSettings();
                 userState.delete(from);
-                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Emoji updated to:* ${config.ownerReactEmojis.join(' ')}` }, { quoted: msg }));
+                return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Emoji updated to:* ${config.ownerReactEmojis.join(' ')}` }, sendOptions));
             }
 
             if (isOwner && currentState === 'AWAITING_CUSTOM_EMOJIS') {
@@ -524,9 +525,9 @@ async function connectToWhatsApp() {
                     config.customEmojis = emojiList;
                     saveSettings();
                     userState.delete(from);
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Custom Emojis updated to:* ${config.customEmojis.join(' ')}` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Custom Emojis updated to:* ${config.customEmojis.join(' ')}` }, sendOptions));
                 } else {
-                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again with valid emojis separated by commas.` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again with valid emojis separated by commas.` }, sendOptions));
                 }
             }
 
@@ -538,43 +539,43 @@ async function connectToWhatsApp() {
             // .info Command
             if (command === 'info') {
                 if (!isGroup) {
-                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කළ හැක්කේ WhatsApp ගෲප් තුළ පමණි!` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කළ හැක්කේ WhatsApp ගෲප් තුළ පමණි!` }, sendOptions));
                 }
                 try {
                     const groupMetadata = await sock.groupMetadata(from);
                     const groupDesc = groupMetadata.desc ? groupMetadata.desc.toString() : 'මෙම ගෲප් එක සඳහා Description එකක් සකසා නැත.';
                     const infoText = `📋 *GROUP DESCRIPTION*\n\n👥 *Group Name:* ${groupMetadata.subject}\n\n📝 *Description:*\n${groupDesc}`;
-                    return enqueueTask(() => sock.sendMessage(from, { text: infoText }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: infoText }, sendOptions));
                 } catch (e) {
-                    return enqueueTask(() => sock.sendMessage(from, { text: `❌ Group Description එක ලබා ගැනීමට නොහැකි විය.` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `❌ Group Description එක ලබා ගැනීමට නොහැකි විය.` }, sendOptions));
                 }
             }
 
             // .bot Command
             if (command === 'bot') {
-                if (!isOwner) return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg }));
+                if (!isOwner) return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, sendOptions));
 
                 const subCommand = args.shift()?.toLowerCase();
                 if (subCommand === 'name') {
                     const newName = args.join(' ').trim();
                     if (!newName) {
-                        return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ කරුණාකර නව බොට්ගේ නම ඇතුළත් කරන්න!` }, { quoted: msg }));
+                        return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ කරුණාකර නව බොට්ගේ නම ඇතුළත් කරන්න!` }, sendOptions));
                     }
                     config.botName = newName;
                     saveSettings();
-                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Bot Name successfully updated to:* [ *${config.botName}* ] 🟢` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `✅ *Bot Name successfully updated to:* [ *${config.botName}* ] 🟢` }, sendOptions));
                 } else {
-                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ කරුණාකර නිවැරදි කමාන්ඩ් එක යවන්න: *${config.currentPrefix}bot name <New Name>*` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ කරුණාකර නිවැරදි කමාන්ඩ් එක යවන්න: *${config.currentPrefix}bot name <New Name>*` }, sendOptions));
                 }
             }
 
             // .apply Command
             if (command === 'apply') {
-                if (!isOwner) return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg }));
+                if (!isOwner) return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, sendOptions));
 
                 const inputData = args.join(' ').trim();
                 if (!inputData) {
-                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ කරුණාකර ${config.currentPrefix}apply <GitHub Token / Link / Repo Name> ලෙස යවන්න!` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ කරුණාකර ${config.currentPrefix}apply <GitHub Token / Link / Repo Name> ලෙස යවන්න!` }, sendOptions));
                 }
 
                 if (inputData.startsWith('ghp_') || inputData.includes('github.com')) {
@@ -587,7 +588,7 @@ async function connectToWhatsApp() {
                                     `Reply with option:\n` +
                                     `*1* - Save GitHub Token 🟢\n` +
                                     `*2* - Cancel 🔴`;
-                    return enqueueTask(() => sock.sendMessage(from, { text: menuMsg }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: menuMsg }, sendOptions));
                 } else {
                     userState.set(from, { type: 'CONFIRM_REPO', data: inputData });
 
@@ -597,14 +598,14 @@ async function connectToWhatsApp() {
                                     `Reply with option:\n` +
                                     `*1* - Save Repo Name 🟢\n` +
                                     `*2* - Cancel 🔴`;
-                    return enqueueTask(() => sock.sendMessage(from, { text: menuMsg }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: menuMsg }, sendOptions));
                 }
             }
 
             // Setting Command
             if (command === 'setting' || command === 'settings') {
                 if (!isOwner) {
-                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ Settings වෙනස් කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, { quoted: msg }));
+                    return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ Settings වෙනස් කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, sendOptions));
                 }
 
                 userState.set(from, 'AWAITING_SETTING_CHOICE');
@@ -628,7 +629,7 @@ async function connectToWhatsApp() {
                                      `• *GitHub Token:* ${config.githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴"}\n` +
                                      `• *GitHub Repo:* ${config.githubRepo}`;
 
-                enqueueTask(() => sock.sendMessage(from, { text: settingsText }, { quoted: msg }));
+                enqueueTask(() => sock.sendMessage(from, { text: settingsText }, sendOptions));
             }
 
             // Menu Command
@@ -649,16 +650,16 @@ async function connectToWhatsApp() {
                                  `│ 👁️ *${config.currentPrefix}vv2* - View Once Downloader\n` +
                                  `└──────────────`;
 
-                enqueueTask(() => sock.sendMessage(from, { text: menuText }, { quoted: msg }));
+                enqueueTask(() => sock.sendMessage(from, { text: menuText }, sendOptions));
             }
 
             // Ping Command
             else if (command === 'ping') {
                 const start = Date.now();
                 enqueueTask(async () => {
-                    await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
+                    await sock.sendMessage(from, { text: 'Testing speed...' }, sendOptions);
                     const end = Date.now();
-                    await sock.sendMessage(from, { text: `📿 *Pong!* Speed: *${end - start}ms*` }, { quoted: msg });
+                    await sock.sendMessage(from, { text: `📿 *Pong!* Speed: *${end - start}ms*` }, sendOptions);
                 });
             }
 
@@ -666,10 +667,10 @@ async function connectToWhatsApp() {
             else if (command === 'update') {
                 if (!isOwner) return;
                 enqueueTask(async () => {
-                    await sock.sendMessage(from, { text: `🔄 Updating from GitHub...` }, { quoted: msg });
+                    await sock.sendMessage(from, { text: `🔄 Updating from GitHub...` }, sendOptions);
                     exec('git pull', async (error, stdout) => {
-                        if (error) return await sock.sendMessage(from, { text: `❌ Update Failed: ${error.message}` }, { quoted: msg });
-                        await sock.sendMessage(from, { text: `✅ Updated:\n\`\`\`${stdout}\`\`\`\nRestarting Bot Process...` }, { quoted: msg });
+                        if (error) return await sock.sendMessage(from, { text: `❌ Update Failed: ${error.message}` }, sendOptions);
+                        await sock.sendMessage(from, { text: `✅ Updated:\n\`\`\`${stdout}\`\`\`\nRestarting Bot Process...` }, sendOptions);
                         
                         setTimeout(() => {
                             const child = spawn(process.argv[0], process.argv.slice(1), {
@@ -685,10 +686,10 @@ async function connectToWhatsApp() {
 
             // View Once Command
             else if (command === 'vv2' || command === 'vv') {
-                if (!config.viewOnceDownload) return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ View Once Downloader is disabled in Settings!` }, { quoted: msg }));
+                if (!config.viewOnceDownload) return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ View Once Downloader is disabled in Settings!` }, sendOptions));
 
                 const quotedMsg = msg.message.extendedTextMessage?.contextInfo?.quotedMessage;
-                if (!quotedMsg) return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ View Once Message එකකට Reply කරන්න!` }, { quoted: msg }));
+                if (!quotedMsg) return enqueueTask(() => sock.sendMessage(from, { text: `⚠️ View Once Message එකකට Reply කරන්න!` }, sendOptions));
 
                 const viewOnceMsg = quotedMsg.viewOnceMessageV2?.message || quotedMsg.viewOnceMessage?.message || quotedMsg;
                 const imageMsg = viewOnceMsg.imageMessage;
@@ -703,14 +704,14 @@ async function connectToWhatsApp() {
                         for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
 
                         await sock.sendMessage(botOwnerJid, { image: buffer, caption: `👁️ *VIEW ONCE PHOTO DOWNLOADED*` });
-                        await sock.sendMessage(from, { text: `✅ Inbox එකට යවන ලදී!` }, { quoted: msg });
+                        await sock.sendMessage(from, { text: `✅ Inbox එකට යවන ලදී!` }, sendOptions);
                     } else if (videoMsg) {
                         const stream = await downloadContentFromMessage(videoMsg, 'video');
                         let buffer = Buffer.from([]);
                         for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
 
                         await sock.sendMessage(botOwnerJid, { video: buffer, caption: `👁️ *VIEW ONCE VIDEO DOWNLOADED*` });
-                        await sock.sendMessage(from, { text: `✅ Inbox එකට යවන ලදී!` }, { quoted: msg });
+                        await sock.sendMessage(from, { text: `✅ Inbox එකට යවන ලදී!` }, sendOptions);
                     }
                 });
             }
