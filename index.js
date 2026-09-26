@@ -121,7 +121,7 @@ let isPairingRequested = false;
 let sock = null;
 let ownerEmojiIndex = 0;
 
-// Simple Message Queue to avoid WhatsApp Rate Limiting / Arrow Errors
+// Optimized Direct Fast Processing Queue
 const messageQueue = [];
 let isProcessingQueue = false;
 
@@ -136,7 +136,6 @@ async function processQueue() {
         } catch (e) {
             console.error("Queue Task Error:", e?.message || e);
         }
-        await new Promise((resolve) => setTimeout(resolve, 300));
     }
     
     isProcessingQueue = false;
@@ -173,12 +172,12 @@ async function connectToWhatsApp() {
         
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false, 
+        emitOwnEvents: true, 
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 25000,
-        retryRequestDelayMs: 3000,
+        retryRequestDelayMs: 2000,
         msgRetryCounterCache,
 
         getMessage: async (key) => {
@@ -190,7 +189,7 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return undefined;
+            return { conversation: "Ping" };
         }
     });
 
@@ -257,7 +256,6 @@ async function connectToWhatsApp() {
 
             try {
                 await sock.sendPresenceUpdate(config.botPresence);
-                // Owner ගේ Inbox එකට Notify කිරීම
                 const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
                 await sock.sendMessage(ownerJid, {
                     text: `🟢 *${config.botName} Connected Successfully!*\n\n` +
@@ -296,7 +294,7 @@ async function connectToWhatsApp() {
             if (processedMessages.size > 2000) {
                 processedMessages.clear();
             } else {
-                setTimeout(() => processedMessages.delete(msgId), 60000);
+                setTimeout(() => processedMessages.delete(msgId), 30000);
             }
 
             const from = msg.key.remoteJid;
@@ -660,7 +658,7 @@ async function connectToWhatsApp() {
                 enqueueTask(async () => {
                     await sock.sendMessage(from, { text: 'Testing speed...' }, { quoted: msg });
                     const end = Date.now();
-                    await sock.sendMessage(from, { text: `🏓 *Pong!* Speed: *${end - start}ms*` }, { quoted: msg });
+                    await sock.sendMessage(from, { text: `📿 *Pong!* Speed: *${end - start}ms*` }, { quoted: msg });
                 });
             }
 
