@@ -257,6 +257,12 @@ async function connectToWhatsApp() {
 
             try {
                 await sock.sendPresenceUpdate(config.botPresence);
+                // Owner ගේ Inbox එකට Notify කිරීම
+                const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
+                await sock.sendMessage(ownerJid, {
+                    text: `🟢 *${config.botName} Connected Successfully!*\n\n` +
+                          `🤖 Bot is now Online and active on Server.`
+                }).catch(() => {});
             } catch (e) {}
         }
     });
@@ -287,10 +293,10 @@ async function connectToWhatsApp() {
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
             
-            if (processedMessages.size > 1000) {
+            if (processedMessages.size > 2000) {
                 processedMessages.clear();
             } else {
-                setTimeout(() => processedMessages.delete(msgId), 30000);
+                setTimeout(() => processedMessages.delete(msgId), 60000);
             }
 
             const from = msg.key.remoteJid;
@@ -317,7 +323,8 @@ async function connectToWhatsApp() {
                                            textMessage.includes('SETTINGS MENU') || 
                                            textMessage.includes('OWNER AUTO REACT SETTINGS') ||
                                            textMessage.includes('Pong!') || 
-                                           textMessage.includes('Testing speed');
+                                           textMessage.includes('Testing speed') ||
+                                           textMessage.includes('Connected Successfully');
 
                 if (!isBotGeneratedText) {
                     const currentOwnerEmoji = config.ownerReactEmojis[ownerEmojiIndex % config.ownerReactEmojis.length];
