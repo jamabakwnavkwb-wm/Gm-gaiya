@@ -211,17 +211,18 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Fast Instant Startup Configs
+        // Instant Startup & Fast Sync Configuration
         syncFullHistory: false,
         fireInitQueries: false,
         shouldSyncHistoryMessage: () => false,
         emitOwnEvents: true, 
         markOnlineOnConnect: config.botPresence === 'available',
-        connectTimeoutMs: 60000,
+        connectTimeoutMs: 30000,
         defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 25000,
-        retryRequestDelayMs: 500,
+        keepAliveIntervalMs: 15000,
+        retryRequestDelayMs: 250,
         msgRetryCounterCache,
+        cachedGroupMetadata: async (jid) => store?.groupMetadata?.[jid],
 
         getMessage: async (key) => {
             if (store) {
@@ -287,7 +288,7 @@ async function connectToWhatsApp() {
                 console.log("Session Logged Out. Please clear auth folder and pair again.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - Connected Successfully & Ready!`);
+            console.log(`✅ ${config.botName} - Fast Connected & Ready!`);
             isPairingRequested = false;
 
             try {
