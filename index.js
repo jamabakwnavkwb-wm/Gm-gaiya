@@ -15,7 +15,7 @@ const http = require('http');
 const { exec } = require('child_process');
 const https = require('https');
 
-// 🌐 Keep-Alive Server
+// 🌐 Keep-Alive Server (Prevents hosting shutdown)
 const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -24,7 +24,7 @@ http.createServer((req, res) => {
     console.log(`🌐 Keep-Alive Server running on port ${PORT}`);
 });
 
-// Cache Setup for Retry Counters (Fixes Encryption & "Waiting for message" Errors)
+// Cache Setup for Retry Counters
 let NodeCache;
 let msgRetryCounterCache;
 try {
@@ -34,13 +34,13 @@ try {
     msgRetryCounterCache = new Map();
 }
 
-// Global Error Handlers
+// Global Crash Prevention Handlers
 process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception Safe-Handled:', err?.message || err);
+    console.error('Uncaught Exception Prevented:', err?.message || err);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection Safe-Handled:', reason?.message || reason);
+    console.error('Unhandled Rejection Prevented:', reason?.message || reason);
 });
 
 const rawPhoneNumber = process.env.PHONE_NUMBER || "94764802314";
@@ -49,7 +49,7 @@ const PHONE_NUMBER = rawPhoneNumber.replace(/[^0-9]/g, '');
 const SETTINGS_FILE = path.join(__dirname, 'settings.json');
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 
-// InMemoryStore setup
+// Store Initialization
 let store;
 try {
     store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
@@ -66,19 +66,16 @@ try {
 // Bot Configuration State
 let config = {
     botName: 'GM GAIYA - MD',
-    botPresence: 'available', // 'available' = Online, 'unavailable' = Offline
+    botPresence: 'available',
     currentPrefix: ':',
     workMode: 'private', 
     
-    // Owner Auto React Settings
     ownerAutoReactEnabled: true,
     ownerReactEmojis: ['👑', '❤️'],
 
-    // Auto React Configurations for Others
     autoReactEnabled: true,
     autoReactTarget: 'public', 
     
-    // Custom React Configurations
     customReactEnabled: false,
     customReactTarget: 'public', 
     customEmojis: ['❤️', '👑', '♥️', '😑', '🤔'],
@@ -93,11 +90,9 @@ function loadSettings() {
         try {
             const data = fs.readFileSync(SETTINGS_FILE, 'utf8');
             const loadedData = JSON.parse(data);
-            
             if (loadedData.ownerReactEmoji && !loadedData.ownerReactEmojis) {
                 loadedData.ownerReactEmojis = loadedData.ownerReactEmoji.split(',').map(e => e.trim());
             }
-            
             config = { ...config, ...loadedData };
         } catch (e) {
             console.error("Settings load error:", e);
@@ -105,10 +100,8 @@ function loadSettings() {
     }
 }
 
-// GitHub API Auto-Sync Helper
 async function syncToGitHub(filePath, content, commitMessage) {
     if (!config.githubToken || config.githubToken === "NOT SET" || !config.githubRepo) return;
-    
     try {
         const repo = config.githubRepo.replace('https://github.com/', '').replace('.git', '');
         const filename = path.basename(filePath);
@@ -187,38 +180,54 @@ let isPairingRequested = false;
 let sock = null;
 let ownerEmojiIndex = 0;
 
-// Helper function to fetch HTML without external dependencies
+// HTTP Helper Function
 function fetchUrl(url) {
     return new Promise((resolve, reject) => {
-        https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+        const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                return fetchUrl(res.headers.location).then(resolve).catch(reject);
+            }
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => resolve(data));
-        }).on('error', err => reject(err));
+        });
+        req.on('error', err => reject(err));
+        req.setTimeout(15000, () => {
+            req.destroy();
+            reject(new Error("Timeout"));
+        });
     });
 }
 
-// Cinesubz Scraper Functions without Cheerio/Axios
+// 🎬 Fixed Movie Scraper Logic
 async function searchCinesubz(query) {
     try {
         const url = `https://cinesubz.co/?s=${encodeURIComponent(query)}`;
         const html = await fetchUrl(url);
         const results = [];
 
-        const regex = /<a[^>]+href="(https:\/\/cinesubz\.co\/movies\/[^"]+)"[^>]*>(.*?)<\/a>/gi;
+        const articleRegex = /<article[^>]*>([\s\S]*?)<\/article>/gi;
         let match;
         const seen = new Set();
 
-        while ((match = regex.exec(html)) !== null) {
-            const link = match[1];
-            let title = match[2].replace(/<[^>]+>/g, '').trim();
-            if (title && !seen.has(link) && title.length > 2) {
-                seen.add(link);
-                results.push({ title, link });
+        while ((match = articleRegex.exec(html)) !== null) {
+            const articleContent = match[1];
+            const linkMatch = articleContent.match(/href="(https:\/\/cinesubz\.co\/[^\/]+\/[^"]+)"/i) || articleContent.match(/href="(https:\/\/cinesubz\.co\/[^"]+)"/i);
+            const titleMatch = articleContent.match(/<h2[^>]*>(.*?)<\/h2>/i) || articleContent.match(/alt="([^"]+)"/i) || articleContent.match(/title="([^"]+)"/i);
+
+            if (linkMatch && titleMatch) {
+                const link = linkMatch[1];
+                let title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+
+                if (title && !seen.has(link) && !link.includes('/category/') && !link.includes('/tag/')) {
+                    seen.add(link);
+                    results.push({ title, link });
+                }
             }
         }
         return results.slice(0, 10);
     } catch (e) {
+        console.error("Movie Search Error:", e);
         return [];
     }
 }
@@ -226,31 +235,40 @@ async function searchCinesubz(query) {
 async function getMovieDetails(movieUrl) {
     try {
         const html = await fetchUrl(movieUrl);
-        
-        let titleMatch = html.match(/<h1[^>]*>(.*?)<\/h1>/i);
+
+        let titleMatch = html.match(/<h1[^>]*class="entry-title"[^>]*>(.*?)<\/h1>/i) || html.match(/<h1[^>]*>(.*?)<\/h1>/i);
         let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : 'Movie Details';
 
-        let imgMatch = html.match(/<img[^>]+src="(https:\/\/[^"]+\.(?:jpg|jpeg|png))"[^>]*>/i);
+        let imgMatch = html.match(/<div class="poster"[^>]*>\s*<img[^>]+src="([^"]+)"/i) || html.match(/<img[^>]+src="(https:\/\/[^"]+\.(?:jpg|jpeg|png))"[^>]*>/i);
         let img = imgMatch ? imgMatch[1] : '';
 
         const downloadLinks = [];
-        const linkRegex = /href="(https:\/\/[^"]*(?:mega|pixeldrain|drive|direct|download)[^"]*)"/gi;
+        const linkRegex = /href="(https:\/\/[^"]*(?:pixeldrain|mega|drive|direct|download|file)[^"]*)"/gi;
         let lMatch;
         let idx = 1;
+        const seenLinks = new Set();
 
         while ((lMatch = linkRegex.exec(html)) !== null) {
-            downloadLinks.push({ name: `Download Link ${idx++}`, url: lMatch[1] });
+            const dLink = lMatch[1];
+            if (!seenLinks.has(dLink) && !dLink.includes('cinesubz.co')) {
+                seenLinks.add(dLink);
+                let quality = dLink.includes('720p') ? '720p HD' : dLink.includes('1080p') ? '1080p FHD' : dLink.includes('480p') ? '480p SD' : `Download Link ${idx}`;
+                downloadLinks.push({ name: `${quality}`, url: dLink });
+                idx++;
+            }
         }
 
-        return { title, img, desc: 'Cinesubz Movie Details', downloadLinks };
+        return { title, img, downloadLinks };
     } catch (e) {
+        console.error("Movie Detail Error:", e);
         return null;
     }
 }
 
+// Connection Setup & Keep-Alive Loop
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-    
+
     let version;
     try {
         const fetched = await fetchLatestBaileysVersion();
@@ -272,7 +290,6 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Fast Instant Startup Configs
         syncFullHistory: false,
         fireInitQueries: false,
         shouldSyncHistoryMessage: () => false,
@@ -290,9 +307,7 @@ async function connectToWhatsApp() {
                 try {
                     const msg = await store.loadMessage(key.remoteJid, key.id);
                     return msg?.message || undefined;
-                } catch (e) {
-                    return undefined;
-                }
+                } catch (e) { return undefined; }
             }
             return { conversation: 'Hello' };
         }
@@ -300,7 +315,7 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Connection Handler
+    // Auto Reconnect Handler
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
 
@@ -308,12 +323,11 @@ async function connectToWhatsApp() {
             isPairingRequested = true;
             setTimeout(async () => {
                 try {
-                    console.log(`\n⏳ Requesting Pairing Code for phone number: +${PHONE_NUMBER}...`);
+                    console.log(`\n⏳ Requesting Pairing Code for: +${PHONE_NUMBER}...`);
                     let code = await sock.requestPairingCode(PHONE_NUMBER);
                     code = code?.match(/.{1,4}/g)?.join("-") || code;
-                    console.log(`\n=================================\n🔑 YOUR PAIRING CODE: ${code}\n=================================\n`);
+                    console.log(`\n=================================\n🔑 PAIRING CODE: ${code}\n=================================\n`);
                 } catch (error) {
-                    console.log("⚠️ Pairing Code Generation Error. Retrying in 5 seconds...", error?.message || error);
                     isPairingRequested = false;
                 }
             }, 5000);
@@ -322,26 +336,24 @@ async function connectToWhatsApp() {
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             isPairingRequested = false;
-            
-            console.log(`⚠️ Connection closed (Status: ${statusCode}). Reconnecting...`);
+            console.log(`⚠️ Connection closed (Status: ${statusCode}). Auto-reconnecting...`);
             
             if (statusCode !== DisconnectReason.loggedOut) {
                 setTimeout(() => connectToWhatsApp(), 3000);
             } else {
-                console.log("Session Logged Out. Please clear auth folder and pair again.");
+                console.log("❌ Session Logged Out. Please clear auth folder and pair again.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - Connected Successfully & Ready!`);
+            console.log(`✅ ${config.botName} - Connected Successfully & 24/7 Active!`);
             isPairingRequested = false;
 
             try {
                 await sock.sendPresenceUpdate(config.botPresence);
                 const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
-                
                 await sock.sendMessage(ownerJid, {
                     text: `🟢 *${config.botName} Connected Successfully! (24/7 Active)*\n\n` +
-                          `🤖 Presence Status: ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
-                          `📁 GitHub Repo: ${config.githubRepo}`
+                          `🤖 Status: ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
+                          `📁 Repo: ${config.githubRepo}`
                 }).catch(() => {});
             } catch (e) {}
         }
@@ -349,15 +361,12 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Fast React Function
     async function safeReact(from, emoji, key) {
         if (!emoji || !key || !sock) return;
-        await sock.sendMessage(from, { 
-            react: { text: emoji, key: key } 
-        }).catch(() => {});
+        await sock.sendMessage(from, { react: { text: emoji, key: key } }).catch(() => {});
     }
 
-    // Messages Logic
+    // Message Upsert Logic
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         try {
             if (type !== 'notify') return; 
@@ -371,7 +380,7 @@ async function connectToWhatsApp() {
             if (processedMessages.has(msgId)) return;
             processedMessages.add(msgId);
             
-            if (processedMessages.size > 2000) {
+            if (processedMessages.size > 3000) {
                 processedMessages.clear();
             } else {
                 setTimeout(() => processedMessages.delete(msgId), 30000);
@@ -396,13 +405,11 @@ async function connectToWhatsApp() {
             const isSelfChat = (from === `${PHONE_NUMBER}@s.whatsapp.net`) || msg.key.fromMe;
             const sendOptions = isSelfChat ? {} : { quoted: msg };
 
-            // Owner Auto React Logic
-            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
+            // Owner Auto React
+            if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis?.length > 0) {
                 const isBotGeneratedText = textMessage.includes('MAIN MENU') || 
                                            textMessage.includes('SETTINGS MENU') || 
-                                           textMessage.includes('OWNER AUTO REACT SETTINGS') ||
                                            textMessage.includes('Pong!') || 
-                                           textMessage.includes('Testing speed') ||
                                            textMessage.includes('Connected Successfully');
 
                 if (!isBotGeneratedText) {
@@ -412,7 +419,7 @@ async function connectToWhatsApp() {
                 }
             }
 
-            // Others Auto React Logic
+            // Public Auto React
             if (!isOwner) {
                 if (config.autoReactEnabled) {
                     const isTargetMatched = 
@@ -426,7 +433,7 @@ async function connectToWhatsApp() {
                     }
                 }
 
-                if (config.customReactEnabled && config.customEmojis && config.customEmojis.length > 0) {
+                if (config.customReactEnabled && config.customEmojis?.length > 0) {
                     const isCustomTargetMatched = 
                         (config.customReactTarget === 'public') ||
                         (config.customReactTarget === 'group' && isGroup) ||
@@ -449,7 +456,7 @@ async function connectToWhatsApp() {
 
             const currentState = userState.get(from);
 
-            // 🎬 MOVIE SELECTION & DOWNLOAD WORKFLOW
+            // 🎬 MOVIE SELECTION & DETAILS CARD HANDLER
             if (currentState && typeof currentState === 'object' && currentState.type === 'MOVIE_SEARCH_LIST') {
                 const choice = parseInt(textMessage.trim());
                 if (!isNaN(choice) && choice > 0 && choice <= currentState.results.length) {
@@ -470,7 +477,7 @@ async function connectToWhatsApp() {
                     });
 
                     let detailsCard = `🎬 *${movieData.title.toUpperCase()}*\n\n` +
-                                       `🔗 *Movie Link:* ${selectedMovie.link}`;
+                                      `🔗 *Link:* ${selectedMovie.link}`;
 
                     if (movieData.img) {
                         await sock.sendMessage(from, { image: { url: movieData.img }, caption: detailsCard }, sendOptions);
@@ -478,11 +485,11 @@ async function connectToWhatsApp() {
                         await sock.sendMessage(from, { text: detailsCard }, sendOptions);
                     }
 
-                    let dlText = `📥 *DOWNLOAD OPTIONS - ${movieData.title}*\n\n` +
+                    let dlText = `📥 *AVAILABLE DOWNLOAD QUALITIES*\n\n` +
                                  `Reply with the option number to download:\n\n`;
 
                     if (movieData.downloadLinks.length === 0) {
-                        dlText += `❌ direct download links හමු නොවීය.`;
+                        dlText += `❌ Direct download links හමු නොවීය.`;
                     } else {
                         movieData.downloadLinks.forEach((item, idx) => {
                             dlText += `*${idx + 1}* - ${item.name}\n`;
@@ -493,6 +500,7 @@ async function connectToWhatsApp() {
                 }
             }
 
+            // 📥 MOVIE DOWNLOAD HANDLER
             if (currentState && typeof currentState === 'object' && currentState.type === 'MOVIE_DOWNLOAD_LIST') {
                 const choice = parseInt(textMessage.trim());
                 if (!isNaN(choice) && choice > 0 && choice <= currentState.links.length) {
@@ -512,7 +520,7 @@ async function connectToWhatsApp() {
                         }, sendOptions);
                     } catch (e) {
                         await sock.sendMessage(from, { 
-                            text: `❌ *Direct Download Error!* WhatsApp හරහා සෘජුවම එැවීමට නොහැකි තරම් File එක විශාල විය හැක.\n\n🔗 *Direct Download Link:* ${selectedLink.url}` 
+                            text: `❌ *Direct File Send Error!* File Size එක ඉතා විශාල නිසා කෙලින්ම යැවිය නොහැක.\n\n🔗 *Direct Download Link:* ${selectedLink.url}` 
                         }, sendOptions);
                     }
                     return;
@@ -524,7 +532,7 @@ async function connectToWhatsApp() {
                     config.githubToken = currentState.data;
                     saveSettings();
                     userState.delete(from);
-                    return sock.sendMessage(from, { text: `✅ *GitHub Token successfully updated & saved!* 🟢` }, sendOptions);
+                    return sock.sendMessage(from, { text: `✅ *GitHub Token updated!* 🟢` }, sendOptions);
                 } else if (textMessage === '2') {
                     userState.delete(from);
                     return sock.sendMessage(from, { text: `❌ *GitHub Token update cancelled!*` }, sendOptions);
@@ -536,7 +544,7 @@ async function connectToWhatsApp() {
                     config.githubRepo = currentState.data;
                     saveSettings();
                     userState.delete(from);
-                    return sock.sendMessage(from, { text: `✅ *GitHub Repo Name updated to:* [ *${config.githubRepo}* ] 🟢` }, sendOptions);
+                    return sock.sendMessage(from, { text: `✅ *GitHub Repo updated:* [ *${config.githubRepo}* ] 🟢` }, sendOptions);
                 } else if (textMessage === '2') {
                     userState.delete(from);
                     return sock.sendMessage(from, { text: `❌ *GitHub Repo update cancelled!*` }, sendOptions);
@@ -546,45 +554,33 @@ async function connectToWhatsApp() {
             if (isOwner && currentState === 'AWAITING_SETTING_CHOICE') {
                 if (textMessage === '2') {
                     userState.set(from, 'AWAITING_PREFIX_CHOICE');
-                    return sock.sendMessage(from, { 
-                        text: `⚙️ *CHANGE PREFIX*\n\nCurrent: [ *${config.currentPrefix}* ]\nSend desired prefix symbol (e.g., # , . , !)` 
-                    }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚙️ *CHANGE PREFIX*\n\nCurrent: [ *${config.currentPrefix}* ]\nSend desired prefix symbol.` }, sendOptions);
                 }
                 else if (textMessage === '3') {
                     userState.set(from, 'AWAITING_MODE_CHOICE');
-                    return sock.sendMessage(from, { 
-                        text: `⚙️ *WORK MODE SETTINGS*\n\nReply with option:\n*3.1* - Private Mode 🔒\n*3.2* - Group Mode 👥\n*3.3* - Inbox Mode 📥\n*3.4* - Public Mode 🌐` 
-                    }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚙️ *WORK MODE SETTINGS*\n\nReply with:\n*3.1* - Private 🔒\n*3.2* - Group 👥\n*3.3* - Inbox 📥\n*3.4* - Public 🌐` }, sendOptions);
                 }
                 else if (textMessage === '4') {
                     userState.set(from, 'AWAITING_OWNER_REACT_CHOICE');
-                    return sock.sendMessage(from, { 
-                        text: `⚙️ *OWNER AUTO REACT SETTINGS*\n\nReply with option:\n*4.1* - Turn ON Owner Auto React 🟢\n*4.2* - Turn OFF Owner Auto React 🔴\n*4.3* - Change Emojis (e.g. 👑,❤️)` 
-                    }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚙️ *OWNER AUTO REACT*\n\nReply with:\n*4.1* - ON 🟢\n*4.2* - OFF 🔴\n*4.3* - Change Emojis` }, sendOptions);
                 }
                 else if (textMessage === '5') {
                     userState.set(from, 'AWAITING_REACT_CHOICE');
-                    return sock.sendMessage(from, { 
-                        text: `⚙️ *AUTO REACT SETTINGS*\n\nReply with option:\n*5.1* - Turn ON Auto React 🟢\n*5.2* - Turn OFF Auto React 🔴\n*5.3* - Target: Group Only 👥\n*5.4* - Target: Inbox Only 📥\n*5.5* - Target: Public (All) 🌐\n*5.6* - Change Single Emoji 👑` 
-                    }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚙️ *AUTO REACT*\n\nReply with:\n*5.1* - ON 🟢\n*5.2* - OFF 🔴\n*5.3* - Group\n*5.4* - Inbox\n*5.5* - Public\n*5.6* - Change Single Emoji` }, sendOptions);
                 }
                 else if (textMessage === '6') {
                     userState.set(from, 'AWAITING_CUSTOM_REACT_CHOICE');
-                    return sock.sendMessage(from, { 
-                        text: `⚙️ *CUSTOM REACT SETTINGS*\n\nReply with option:\n*6.1* - Turn ON Custom React 🟢\n*6.2* - Turn OFF Custom React 🔴\n*6.3* - Target: Group Only 👥\n*6.4* - Target: Inbox Only 📥\n*6.5* - Target: Public (All) 🌐\n*6.6* - Set Emojis (e.g. ❤️,👑,♥️,😑,🤔)` 
-                    }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚙️ *CUSTOM REACT*\n\nReply with:\n*6.1* - ON 🟢\n*6.2* - OFF 🔴\n*6.3* - Group\n*6.4* - Inbox\n*6.5* - Public\n*6.6* - Set Emojis` }, sendOptions);
                 }
                 else if (textMessage === '7') {
                     config.viewOnceDownload = !config.viewOnceDownload;
                     saveSettings();
                     userState.delete(from);
-                    return sock.sendMessage(from, { text: `👁️ *View Once Downloader is now:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}` }, sendOptions);
+                    return sock.sendMessage(from, { text: `👁️ *View Once Downloader:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}` }, sendOptions);
                 }
                 else if (textMessage === '8') {
                     userState.set(from, 'AWAITING_PRESENCE_CHOICE');
-                    return sock.sendMessage(from, { 
-                        text: `⚙️ *ONLINE / OFFLINE STATUS SETTINGS*\n\nReply with option:\n*8.1* - Set Status ONLINE 🟢\n*8.2* - Set Status OFFLINE 🔴` 
-                    }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚙️ *PRESENCE STATUS*\n\nReply with:\n*8.1* - ONLINE 🟢\n*8.2* - OFFLINE 🔴` }, sendOptions);
                 }
             }
 
@@ -594,14 +590,13 @@ async function connectToWhatsApp() {
                     await sock.sendPresenceUpdate('available');
                     saveSettings();
                     userState.delete(from);
-                    return sock.sendMessage(from, { text: `✅ *Bot Presence set to:* ONLINE 🟢` }, sendOptions);
-                }
-                else if (textMessage === '8.2' || textMessage.toLowerCase() === 'off') {
+                    return sock.sendMessage(from, { text: `✅ *Presence set to:* ONLINE 🟢` }, sendOptions);
+                } else if (textMessage === '8.2' || textMessage.toLowerCase() === 'off') {
                     config.botPresence = 'unavailable';
                     await sock.sendPresenceUpdate('unavailable');
                     saveSettings();
                     userState.delete(from);
-                    return sock.sendMessage(from, { text: `✅ *Bot Presence set to:* OFFLINE 🔴` }, sendOptions);
+                    return sock.sendMessage(from, { text: `✅ *Presence set to:* OFFLINE 🔴` }, sendOptions);
                 }
             }
 
@@ -628,16 +623,14 @@ async function connectToWhatsApp() {
                     saveSettings();
                     userState.delete(from);
                     return sock.sendMessage(from, { text: `✅ *Owner Auto React Enabled!* 🟢` }, sendOptions);
-                }
-                else if (textMessage === '4.2') {
+                } else if (textMessage === '4.2') {
                     config.ownerAutoReactEnabled = false;
                     saveSettings();
                     userState.delete(from);
                     return sock.sendMessage(from, { text: `✅ *Owner Auto React Disabled!* 🔴` }, sendOptions);
-                }
-                else if (textMessage === '4.3') {
+                } else if (textMessage === '4.3') {
                     userState.set(from, 'AWAITING_OWNER_EMOJIS');
-                    return sock.sendMessage(from, { text: `Send the desired Owner Emojis separated by commas (e.g. 👑,❤️):` }, sendOptions);
+                    return sock.sendMessage(from, { text: `Send Owner Emojis (e.g. 👑,❤️):` }, sendOptions);
                 }
             }
 
@@ -648,9 +641,7 @@ async function connectToWhatsApp() {
                     ownerEmojiIndex = 0;
                     saveSettings();
                     userState.delete(from);
-                    return sock.sendMessage(from, { text: `✅ *Owner Emojis updated to:* ${config.ownerReactEmojis.join(' ')}` }, sendOptions);
-                } else {
-                    return sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again (e.g. 👑,❤️).` }, sendOptions);
+                    return sock.sendMessage(from, { text: `✅ *Owner Emojis updated:* ${config.ownerReactEmojis.join(' ')}` }, sendOptions);
                 }
             }
 
@@ -662,7 +653,7 @@ async function connectToWhatsApp() {
                 else if (textMessage === '5.5') config.autoReactTarget = 'public';
                 else if (textMessage === '5.6') {
                     userState.set(from, 'AWAITING_EMOJI');
-                    return sock.sendMessage(from, { text: `Send the new single Emoji:` }, sendOptions);
+                    return sock.sendMessage(from, { text: `Send single Emoji:` }, sendOptions);
                 }
                 saveSettings();
                 userState.delete(from);
@@ -677,7 +668,7 @@ async function connectToWhatsApp() {
                 else if (textMessage === '6.5') config.customReactTarget = 'public';
                 else if (textMessage === '6.6') {
                     userState.set(from, 'AWAITING_CUSTOM_EMOJIS');
-                    return sock.sendMessage(from, { text: `Send emojis separated by commas (e.g. ❤️,👑,♥️,😑,🤔):` }, sendOptions);
+                    return sock.sendMessage(from, { text: `Send emojis (e.g. ❤️,👑,♥️):` }, sendOptions);
                 }
                 saveSettings();
                 userState.delete(from);
@@ -698,8 +689,6 @@ async function connectToWhatsApp() {
                     saveSettings();
                     userState.delete(from);
                     return sock.sendMessage(from, { text: `✅ *Custom Emojis updated to:* ${config.customEmojis.join(' ')}` }, sendOptions);
-                } else {
-                    return sock.sendMessage(from, { text: `⚠️ Invalid input! Please try again with valid emojis separated by commas.` }, sendOptions);
                 }
             }
 
@@ -708,12 +697,12 @@ async function connectToWhatsApp() {
             const args = textMessage.slice(config.currentPrefix.length).trim().split(/ +/);
             const command = args.shift().toLowerCase();
 
-            // 🎬 .cinesubz & .movie SEARCH COMMAND
+            // 🎬 MOVIE / CINESUBZ COMMAND
             if (command === 'cinesubz' || command === 'movie') {
                 const query = args.join(' ').trim();
                 if (!query) {
                     return sock.sendMessage(from, { 
-                        text: `⚠️ *භාවිතය:* ${config.currentPrefix}${command} <Movie Name>\n*Example:* ${config.currentPrefix}${command} King Kong` 
+                        text: `⚠️ *භාවිතය:* ${config.currentPrefix}${command} <Movie Name>\n*Example:* ${config.currentPrefix}${command} Batman` 
                     }, sendOptions);
                 }
 
@@ -741,77 +730,55 @@ async function connectToWhatsApp() {
                 return sock.sendMessage(from, { text: menuMsg }, sendOptions);
             }
 
-            // .info Command
+            // Info Command
             if (command === 'info') {
-                if (!isGroup) {
-                    return sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කළ හැක්කේ WhatsApp ගෲප් තුළ පමණි!` }, sendOptions);
-                }
+                if (!isGroup) return sock.sendMessage(from, { text: `⚠️ ගෲප් තුළ පමණක් භාවිතා කළ හැක!` }, sendOptions);
                 try {
                     const groupMetadata = await sock.groupMetadata(from);
-                    const groupDesc = groupMetadata.desc ? groupMetadata.desc.toString() : 'මෙම ගෲප් එක සඳහා Description එකක් සකසා නැත.';
+                    const groupDesc = groupMetadata.desc ? groupMetadata.desc.toString() : 'Description එකක් සකසා නැත.';
                     const infoText = `📋 *GROUP DESCRIPTION*\n\n👥 *Group Name:* ${groupMetadata.subject}\n\n📝 *Description:*\n${groupDesc}`;
                     return sock.sendMessage(from, { text: infoText }, sendOptions);
                 } catch (e) {
-                    return sock.sendMessage(from, { text: `❌ Group Description එක ලබා ගැනීමට නොහැකි විය.` }, sendOptions);
+                    return sock.sendMessage(from, { text: `❌ Details ලබා ගැනීමට නොහැකි විය.` }, sendOptions);
                 }
             }
 
-            // .bot Command
+            // Bot Command
             if (command === 'bot') {
-                if (!isOwner) return sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, sendOptions);
+                if (!isOwner) return sock.sendMessage(from, { text: `⚠️ Bot Owner ට පමණයි!` }, sendOptions);
 
                 const subCommand = args.shift()?.toLowerCase();
                 if (subCommand === 'name') {
                     const newName = args.join(' ').trim();
-                    if (!newName) {
-                        return sock.sendMessage(from, { text: `⚠️ කරුණාකර නව බොට්ගේ නම ඇතුළත් කරන්න!` }, sendOptions);
-                    }
+                    if (!newName) return sock.sendMessage(from, { text: `⚠️ නව නම ඇතුළත් කරන්න!` }, sendOptions);
                     config.botName = newName;
                     saveSettings();
-                    return sock.sendMessage(from, { text: `✅ *Bot Name successfully updated to:* [ *${config.botName}* ] 🟢` }, sendOptions);
+                    return sock.sendMessage(from, { text: `✅ *Bot Name updated to:* [ *${config.botName}* ] 🟢` }, sendOptions);
                 } else {
-                    return sock.sendMessage(from, { text: `⚠️ කරුණාකර නිවැරදි කමාන්ඩ් එක යවන්න: *${config.currentPrefix}bot name <New Name>*` }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚠️ භාවිතය: *${config.currentPrefix}bot name <New Name>*` }, sendOptions);
                 }
             }
 
-            // .apply Command
+            // Apply Command
             if (command === 'apply') {
-                if (!isOwner) return sock.sendMessage(from, { text: `⚠️ මෙම කමාන්ඩ් එක භාවිතා කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, sendOptions);
+                if (!isOwner) return sock.sendMessage(from, { text: `⚠️ Bot Owner ට පමණයි!` }, sendOptions);
 
                 const inputData = args.join(' ').trim();
-                if (!inputData) {
-                    return sock.sendMessage(from, { text: `⚠️ කරුණාකර ${config.currentPrefix}apply <GitHub Token / Link / Repo Name> ලෙස යවන්න!` }, sendOptions);
-                }
+                if (!inputData) return sock.sendMessage(from, { text: `⚠️ භාවිතය: ${config.currentPrefix}apply <Token/Repo>` }, sendOptions);
 
                 if (inputData.startsWith('ghp_') || inputData.includes('github.com')) {
                     const tokenValue = inputData;
                     userState.set(from, { type: 'CONFIRM_TOKEN', data: tokenValue });
-
-                    const menuMsg = `⚙️ *GITHUB TOKEN SETTINGS*\n\n` +
-                                    `Do you want to save this Token?\n` +
-                                    `🔑 *Token/Link:* ${tokenValue.substring(0, 12)}...\n\n` +
-                                    `Reply with option:\n` +
-                                    `*1* - Save GitHub Token 🟢\n` +
-                                    `*2* - Cancel 🔴`;
-                    return sock.sendMessage(from, { text: menuMsg }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚙️ *GITHUB TOKEN SETTINGS*\n\nReply:\n*1* - Save Token\n*2* - Cancel` }, sendOptions);
                 } else {
                     userState.set(from, { type: 'CONFIRM_REPO', data: inputData });
-
-                    const menuMsg = `⚙️ *GITHUB REPO SETTINGS*\n\n` +
-                                    `Do you want to set Repository Name?\n` +
-                                    `📁 *Repo Name:* ${inputData}\n\n` +
-                                    `Reply with option:\n` +
-                                    `*1* - Save Repo Name 🟢\n` +
-                                    `*2* - Cancel 🔴`;
-                    return sock.sendMessage(from, { text: menuMsg }, sendOptions);
+                    return sock.sendMessage(from, { text: `⚙️ *GITHUB REPO SETTINGS*\n\nReply:\n*1* - Save Repo\n*2* - Cancel` }, sendOptions);
                 }
             }
 
-            // Setting Command
+            // Settings Command
             if (command === 'setting' || command === 'settings') {
-                if (!isOwner) {
-                    return sock.sendMessage(from, { text: `⚠️ Settings වෙනස් කිරීමට හිමිකම් ඇත්තේ Bot Owner ට පමණි!` }, sendOptions);
-                }
+                if (!isOwner) return sock.sendMessage(from, { text: `⚠️ Bot Owner ට පමණයි!` }, sendOptions);
 
                 userState.set(from, 'AWAITING_SETTING_CHOICE');
 
@@ -828,10 +795,10 @@ async function connectToWhatsApp() {
                                      `• *Bot Name:* ${config.botName}\n` +
                                      `• *Prefix:* [ ${config.currentPrefix} ]\n` +
                                      `• *Work Mode:* ${config.workMode.toUpperCase()}\n` +
-                                     `• *Presence Status:* ${config.botPresence === 'available' ? 'ONLINE 🟢' : 'OFFLINE 🔴'}\n` +
+                                     `• *Presence:* ${config.botPresence === 'available' ? 'ONLINE 🟢' : 'OFFLINE 🔴'}\n` +
                                      `• *Owner Auto React:* ${config.ownerAutoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.ownerReactEmojis.join(', ')})\n` +
                                      `• *Auto React:* ${config.autoReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.autoReactTarget.toUpperCase()})\n` +
-                                     `• *Custom React:* ${config.customReactEnabled ? 'ON 🟢' : 'OFF 🔴'} (${config.customReactTarget.toUpperCase()}) -> ${config.customEmojis.join(' ')}\n` +
+                                     `• *Custom React:* ${config.customReactEnabled ? 'ON 🟢' : 'OFF 🔴'}\n` +
                                      `• *View Once:* ${config.viewOnceDownload ? 'ON 🟢' : 'OFF 🔴'}\n` +
                                      `• *GitHub Token:* ${config.githubToken !== "NOT SET" ? "SET 🟢" : "NOT SET 🔴"}\n` +
                                      `• *GitHub Repo:* ${config.githubRepo}`;
@@ -853,7 +820,7 @@ async function connectToWhatsApp() {
                                  `│ 🍿 *${config.currentPrefix}cinesubz* - Search Cinesubz\n` +
                                  `│ 🏓 *${config.currentPrefix}ping* - Speed Test\n` +
                                  `│ 📋 *${config.currentPrefix}info* - Get Group Description\n` +
-                                 `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings (Owner Only)\n` +
+                                 `│ ⚙️ *${config.currentPrefix}setting* - Bot Settings\n` +
                                  `│ 🤖 *${config.currentPrefix}bot name <name>* - Change Bot Name\n` +
                                  `│ 🔑 *${config.currentPrefix}apply <token/repo>* - Set GitHub Config\n` +
                                  `│ 🔄 *${config.currentPrefix}update* - Git Update\n` +
@@ -871,17 +838,14 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: `📿 *Pong!* Speed: *${end - start}ms*` }, sendOptions);
             }
 
-            // Update Command (Fixed Clean Restart Logic)
+            // Update Command
             else if (command === 'update') {
                 if (!isOwner) return;
                 await sock.sendMessage(from, { text: `🔄 Updating from GitHub...` }, sendOptions);
                 exec('git pull', async (error, stdout) => {
                     if (error) return await sock.sendMessage(from, { text: `❌ Update Failed: ${error.message}` }, sendOptions);
-                    await sock.sendMessage(from, { text: `✅ Updated Successfully:\n\`\`\`${stdout}\`\`\`\nRestarting Process Safely...` }, sendOptions);
-                    
-                    setTimeout(() => {
-                        process.exit(0);
-                    }, 1500);
+                    await sock.sendMessage(from, { text: `✅ Updated Successfully:\n\`\`\`${stdout}\`\`\`\nRestarting Process...` }, sendOptions);
+                    setTimeout(() => process.exit(0), 1500);
                 });
             }
 
