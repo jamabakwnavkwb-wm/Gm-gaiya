@@ -247,6 +247,7 @@ async function connectToWhatsApp() {
         retryRequestDelayMs: 1000,
         msgRetryCounterCache,
 
+        // Hello Auto Message Bug FIX
         getMessage: async (key) => {
             if (store) {
                 try {
@@ -256,13 +257,13 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return { conversation: "Hello" };
+            return undefined; // Fixed: Removed { conversation: "Hello" }
         }
     });
 
     if (store) store.bind(sock.ev);
 
-    // Continuous 24/7 Auto Refresh without total process shutdown (Every 6 Hours)
+    // Continuous 24/7 Auto Refresh (Every 6 Hours) - Sent ONLY to Owner
     const SIX_HOURS = 6 * 60 * 60 * 1000;
     setTimeout(() => {
         setInterval(async () => {
@@ -317,6 +318,8 @@ async function connectToWhatsApp() {
             try {
                 await sock.sendPresenceUpdate(config.botPresence);
                 const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
+                
+                // Sent strictly ONLY to owner inbox upon reconnect/start
                 await sock.sendMessage(ownerJid, {
                     text: `🟢 *${config.botName} Connected Successfully! (24/7 Active)*\n\n` +
                           `🤖 Presence Status: ${config.botPresence === 'available' ? 'Online 🟢' : 'Offline 🔴'}\n` +
@@ -375,6 +378,7 @@ async function connectToWhatsApp() {
             ).trim();
 
             const isSelfChat = (from === `${PHONE_NUMBER}@s.whatsapp.net`) || msg.key.fromMe;
+            // Send Options Fix: Inbox Encryption Safe Handled
             const sendOptions = isSelfChat ? {} : { quoted: msg };
 
             // Owner Auto React Logic
