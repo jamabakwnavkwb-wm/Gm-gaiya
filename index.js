@@ -12,7 +12,7 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const { exec, spawn } = require('child_process');
+const { exec } = require('child_process');
 const https = require('https');
 
 // 🌐 Keep-Alive Server
@@ -24,7 +24,7 @@ http.createServer((req, res) => {
     console.log(`🌐 Keep-Alive Server running on port ${PORT}`);
 });
 
-// Cache Setup for Retry Counters (Fixes Encryption Errors)
+// Cache Setup for Retry Counters (Fixes Encryption & "Waiting for message" Errors)
 let NodeCache;
 let msgRetryCounterCache;
 try {
@@ -211,16 +211,16 @@ async function connectToWhatsApp() {
         browser: Browsers.ubuntu("Chrome"),
         generateHighQualityLinkPreview: true,
         
-        // Instant Startup & Fast Sync Configuration
+        // Fast Instant Startup Configs
         syncFullHistory: false,
         fireInitQueries: false,
         shouldSyncHistoryMessage: () => false,
         emitOwnEvents: true, 
         markOnlineOnConnect: config.botPresence === 'available',
-        connectTimeoutMs: 30000,
+        connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 15000,
-        retryRequestDelayMs: 250,
+        keepAliveIntervalMs: 25000,
+        retryRequestDelayMs: 500,
         msgRetryCounterCache,
         cachedGroupMetadata: async (jid) => store?.groupMetadata?.[jid],
 
@@ -233,29 +233,11 @@ async function connectToWhatsApp() {
                     return undefined;
                 }
             }
-            return undefined;
+            return { conversation: 'Hello' };
         }
     });
 
     if (store) store.bind(sock.ev);
-
-    // Continuous 24/7 Auto Refresh (Every 6 Hours)
-    const SIX_HOURS = 6 * 60 * 60 * 1000;
-    setTimeout(() => {
-        setInterval(async () => {
-            try {
-                const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
-                if (sock) {
-                    await sock.sendMessage(ownerJid, { 
-                        text: `♻️ *${config.botName} Auto-Refreshing Connection...*\n\n` +
-                              `⏰ පැය 6 කාල රාමුව අනුව සේවා සුමටව පවත්වා ගැනීමට Reconnect වෙනවා.` 
-                    }).catch(() => {});
-                    
-                    sock.ws.close();
-                }
-            } catch (err) {}
-        }, SIX_HOURS);
-    }, 10000);
 
     // Connection Handler
     sock.ev.on('connection.update', async (update) => {
@@ -283,12 +265,12 @@ async function connectToWhatsApp() {
             console.log(`⚠️ Connection closed (Status: ${statusCode}). Reconnecting...`);
             
             if (statusCode !== DisconnectReason.loggedOut) {
-                setTimeout(() => connectToWhatsApp(), 2000);
+                setTimeout(() => connectToWhatsApp(), 3000);
             } else {
                 console.log("Session Logged Out. Please clear auth folder and pair again.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - Fast Connected & Ready!`);
+            console.log(`✅ ${config.botName} - Connected Successfully & Ready!`);
             isPairingRequested = false;
 
             try {
@@ -723,17 +705,17 @@ async function connectToWhatsApp() {
                 await sock.sendMessage(from, { text: `📿 *Pong!* Speed: *${end - start}ms*` }, sendOptions);
             }
 
-            // Update Command
+            // Update Command (Fixed Clean Restart Logic)
             else if (command === 'update') {
                 if (!isOwner) return;
                 await sock.sendMessage(from, { text: `🔄 Updating from GitHub...` }, sendOptions);
                 exec('git pull', async (error, stdout) => {
                     if (error) return await sock.sendMessage(from, { text: `❌ Update Failed: ${error.message}` }, sendOptions);
-                    await sock.sendMessage(from, { text: `✅ Updated:\n\`\`\`${stdout}\`\`\`\nRestarting Bot Process...` }, sendOptions);
+                    await sock.sendMessage(from, { text: `✅ Updated Successfully:\n\`\`\`${stdout}\`\`\`\nRestarting Process Safely...` }, sendOptions);
                     
                     setTimeout(() => {
-                        sock.ws.close();
-                    }, 2000);
+                        process.exit(0);
+                    }, 1500);
                 });
             }
 
