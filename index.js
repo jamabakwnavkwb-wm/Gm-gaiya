@@ -13,17 +13,18 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { exec, spawn } = require('child_process');
+const https = require('https');
 
 // 🌐 KataBump & Cloud Server Keep-Alive HTTP Server
 const PORT = process.env.PORT || 8080;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('GM GAIYA - MD Bot is Running Successfully on KataBump Server!\n');
+    res.end('GM GAIYA - MD Bot is Running 24/7 Successfully!\n');
 }).listen(PORT, () => {
     console.log(`🌐 Keep-Alive Server running on port ${PORT}`);
 });
 
-// Safe NodeCache Module Requirement & Retry Counter
+// NodeCache / Retry Counter Setup
 let NodeCache;
 let msgRetryCounterCache;
 try {
@@ -33,7 +34,7 @@ try {
     msgRetryCounterCache = new Map();
 }
 
-// Global Error Handlers (Prevents Bot Crashes/Bugs)
+// Global Error Handlers
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception Safe-Handled:', err?.message || err);
 });
@@ -85,7 +86,7 @@ let config = {
     
     viewOnceDownload: true,
     githubToken: process.env.GITHUB_TOKEN || "NOT SET",
-    githubRepo: process.env.GITHUB_REPO || "Gm-gaiya"
+    githubRepo: process.env.GITHUB_REPO || "ometh230/Gm-gaiya"
 };
 
 function loadSettings() {
@@ -105,9 +106,75 @@ function loadSettings() {
     }
 }
 
+// GitHub API Auto-Sync Helper
+async function syncToGitHub(filePath, content, commitMessage) {
+    if (!config.githubToken || config.githubToken === "NOT SET" || !config.githubRepo) return;
+    
+    try {
+        const repo = config.githubRepo.replace('https://github.com/', '').replace('.git', '');
+        const filename = path.basename(filePath);
+        const encodedContent = Buffer.from(content).toString('base64');
+
+        const options = {
+            hostname: 'api.github.com',
+            path: `/repos/${repo}/contents/${filename}`,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Node.js',
+                'Authorization': `token ${config.githubToken}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                let sha = '';
+                if (res.statusCode === 200) {
+                    const parsed = JSON.parse(data);
+                    sha = parsed.sha;
+                }
+
+                const putData = JSON.stringify({
+                    message: commitMessage || `Auto Update ${filename}`,
+                    content: encodedContent,
+                    sha: sha || undefined
+                });
+
+                const putOptions = {
+                    hostname: 'api.github.com',
+                    path: `/repos/${repo}/contents/${filename}`,
+                    method: 'PUT',
+                    headers: {
+                        'User-Agent': 'Node.js',
+                        'Authorization': `token ${config.githubToken}`,
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(putData)
+                    }
+                };
+
+                const putReq = https.request(putOptions, (pRes) => {
+                    if (pRes.statusCode === 200 || pRes.statusCode === 201) {
+                        console.log(`✅ GitHub Sync Success: ${filename}`);
+                    }
+                });
+                putReq.write(putData);
+                putReq.end();
+            });
+        });
+        req.on('error', (e) => console.error("GitHub Sync error:", e.message));
+        req.end();
+    } catch (e) {
+        console.error("GitHub Sync Exception:", e);
+    }
+}
+
 function saveSettings() {
     try {
-        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(config, null, 2));
+        const settingsJson = JSON.stringify(config, null, 2);
+        fs.writeFileSync(SETTINGS_FILE, settingsJson);
+        syncToGitHub(SETTINGS_FILE, settingsJson, 'Update Bot Settings via Whatsapp Command');
     } catch (e) {
         console.error("Settings save error:", e);
     }
@@ -121,7 +188,7 @@ let isPairingRequested = false;
 let sock = null;
 let ownerEmojiIndex = 0;
 
-// Optimized Direct Fast Processing Queue
+// Optimized Message Queue
 const messageQueue = [];
 let isProcessingQueue = false;
 
@@ -172,7 +239,7 @@ async function connectToWhatsApp() {
         
         syncFullHistory: false,
         shouldSyncHistoryMessage: () => false,
-        emitOwnEvents: false, // Prevents own message duplication/bugs
+        emitOwnEvents: false, // Prevents own message encryption loops in Inbox
         markOnlineOnConnect: config.botPresence === 'available',
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
@@ -195,28 +262,22 @@ async function connectToWhatsApp() {
 
     if (store) store.bind(sock.ev);
 
-    // Auto Restart Mechanism every 6 hours
+    // Continuous 24/7 Auto Refresh without total process shutdown (Every 6 Hours)
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
     setTimeout(() => {
-        const SIX_HOURS = 6 * 60 * 60 * 1000;
         setInterval(async () => {
             try {
                 const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
                 if (sock) {
                     await sock.sendMessage(ownerJid, { 
-                        text: `♻️ *${config.botName} Auto-Restarting...*\n\n` +
-                              `⏰ පැය 6 කාල රාමුව අනුව බොට් සේවා පවත්වා ගැනීමට Restart වෙමින් පවතී.` 
+                        text: `♻️ *${config.botName} Auto-Refreshing Connection...*\n\n` +
+                              `⏰ පැය 6 කාල රාමුව අනුව සේවා සුමටව පවත්වා ගැනීමට Reconnect වෙනවා.` 
                     }).catch(() => {});
+                    
+                    // Re-connect session safely without going offline permanently
+                    sock.ws.close();
                 }
             } catch (err) {}
-
-            setTimeout(() => {
-                const child = spawn(process.argv[0], process.argv.slice(1), {
-                    detached: true,
-                    stdio: 'inherit'
-                });
-                child.unref();
-                process.exit(0);
-            }, 3000);
         }, SIX_HOURS);
     }, 10000);
 
@@ -251,15 +312,15 @@ async function connectToWhatsApp() {
                 console.log("Session Logged Out. Please clear auth folder and pair again.");
             }
         } else if (connection === 'open') {
-            console.log(`✅ ${config.botName} - KataBump Server එකේ සාර්ථකව සම්බන්ධ විය!`);
+            console.log(`✅ ${config.botName} - 24/7 Server එකේ සාර්ථකව සම්බන්ධ විය!`);
             isPairingRequested = false;
 
             try {
                 await sock.sendPresenceUpdate(config.botPresence);
                 const ownerJid = `${PHONE_NUMBER}@s.whatsapp.net`;
                 await sock.sendMessage(ownerJid, {
-                    text: `🟢 *${config.botName} Connected Successfully!*\n\n` +
-                          `🤖 Bot is now Online and active on Server.`
+                    text: `🟢 *${config.botName} Connected Successfully! (24/7 Active)*\n\n` +
+                          `🤖 GitHub Repository Sync: ${config.githubRepo}`
                 }).catch(() => {});
             } catch (e) {}
         }
@@ -267,7 +328,7 @@ async function connectToWhatsApp() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Safe Reaction Function using Message Queue
+    // Safe Reaction Function
     function safeReact(from, emoji, key) {
         if (!emoji || !key || !sock) return;
         enqueueTask(async () => {
@@ -314,10 +375,10 @@ async function connectToWhatsApp() {
             ).trim();
 
             const isSelfChat = (from === `${PHONE_NUMBER}@s.whatsapp.net`) || msg.key.fromMe;
-            // Safe option for sending reply without triggering encryption bug in Self-Chat
+            // Send Options Fix: Quoted only for normal group/chats to prevent inbox error
             const sendOptions = isSelfChat ? {} : { quoted: msg };
 
-            // Fixed Owner Auto React Logic
+            // Owner Auto React Logic
             if (isOwner && config.ownerAutoReactEnabled && config.ownerReactEmojis && config.ownerReactEmojis.length > 0) {
                 const isBotGeneratedText = textMessage.includes('MAIN MENU') || 
                                            textMessage.includes('SETTINGS MENU') || 
@@ -673,12 +734,7 @@ async function connectToWhatsApp() {
                         await sock.sendMessage(from, { text: `✅ Updated:\n\`\`\`${stdout}\`\`\`\nRestarting Bot Process...` }, sendOptions);
                         
                         setTimeout(() => {
-                            const child = spawn(process.argv[0], process.argv.slice(1), {
-                                detached: true,
-                                stdio: 'inherit'
-                            });
-                            child.unref();
-                            process.exit(0);
+                            sock.ws.close();
                         }, 2000);
                     });
                 });
