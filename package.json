@@ -1,14 +1,16 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "Custom WhatsApp Bot for GitHub",
+  "description": "GM GAIYA - MD WhatsApp Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.5.0",
-    "pino": "^8.1.0",
-    "qrcode-terminal": "^0.12.0"
+    "@whiskeysockets/baileys": "^6.6.0",
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
+    "node-cache": "^5.1.2",
+    "pino": "^8.19.0"
   }
 }
